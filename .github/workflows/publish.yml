@@ -1,0 +1,164 @@
+name: Verify and publish
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    # Trigger filters only. Full SemVer validation happens before any image build.
+    tags: ['v*', '[0-9]*.[0-9]*.[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
+      tags: ${{ steps.release.outputs.tags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Determine image tags
+        id: release
+        run: node scripts/release-metadata.mjs
+
+  verify:
+    name: Build and test
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          # No npm dependencies or lockfile: everything uses Node built-ins.
+          package-manager-cache: false
+      - name: Test release policy
+        run: npm run test:release
+      - name: Build page bundle
+        run: npm run build
+      - name: Test game engine and AI
+        run: npm run test:engine
+      - name: Test multiplayer protocol
+        run: npm run test:multiplayer
+      - name: Check HTTP and WebSocket delivery
+        run: |
+          PORT=18080 LOG_LEVEL=quiet node server/server.js &
+          for attempt in $(seq 1 20); do curl -fsS http://127.0.0.1:18080/healthz >/dev/null && break; sleep 0.5; done
+          node scripts/check-delivery.mjs http://127.0.0.1:18080/
+
+  build-pr:
+    name: Build PR container (amd64)
+    needs: verify
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build container without publishing
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: scorched-earth:pr
+          build-args: |
+            VERSION=dev
+            REVISION=${{ github.sha }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=scorched-amd64
+          cache-to: type=gha,mode=max,scope=scorched-amd64
+      - name: Smoke-test the image
+        run: |
+          npm run build
+          docker run -d --name scorched-pr --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m -p 127.0.0.1:18080:8080 scorched-earth:pr
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz >/dev/null && break; sleep 1; done
+          node scripts/check-delivery.mjs http://127.0.0.1:18080/
+          docker stop -t 30 scorched-pr >/dev/null
+          test "$(docker inspect scorched-pr --format '{{.State.ExitCode}}')" = 0
+
+  publish:
+    name: Publish GHCR image
+    needs: [metadata, verify]
+    if: github.event_name == 'push' && github.ref_type == 'tag' && needs.metadata.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # latest follows successful publication order, including releases of older versions.
+    concurrency:
+      group: scorched-ghcr-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified source for linux/amd64
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ needs.metadata.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.metadata.outputs.version }}
+            REVISION=${{ github.sha }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=scorched-amd64
+          cache-to: type=gha,mode=max,scope=scorched-amd64
+      - name: Report image references for deployment
+        env:
+          IMAGE_TAGS: ${{ needs.metadata.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            printf '## Published Scorched Earth container\n\n'
+            printf 'Platforms: `linux/amd64`\n\n'
+            while IFS= read -r tag; do printf -- '- `%s`\n' "$tag"; done <<< "$IMAGE_TAGS"
+            printf '\nDeploy this exact image:\n\n```dotenv\nSCORCHED_IMAGE=%s@%s\n```\n' "$image" "$IMAGE_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"

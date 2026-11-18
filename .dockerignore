@@ -1,0 +1,18 @@
+# Only send build inputs; local credentials, evidence, models and editor files stay out.
+*
+!Dockerfile
+!package.json
+!tools/
+!tools/build.js
+!src/
+!src/**
+!server/
+!server/server.js
+!server/lib/
+!server/lib/**
+**/.env*
+**/.git
+**/node_modules
+**/*.blend
+**/*.zip
+**/.DS_Store

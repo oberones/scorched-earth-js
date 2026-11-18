@@ -1,0 +1,38 @@
+name: scorched-earth
+services:
+  scorched-earth:
+    # Select a version or immutable digest explicitly; production never builds.
+    image: ${SCORCHED_IMAGE:?Set SCORCHED_IMAGE to a GHCR version or digest}
+    platform: ${SCORCHED_PLATFORM:-linux/amd64}
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    # Long enough for the server to warn players and close sockets cleanly.
+    stop_grace_period: 30s
+    environment:
+      LOG_LEVEL: ${SCORCHED_LOG_LEVEL:-info}
+      ALLOWED_ORIGINS: ${SCORCHED_ALLOWED_ORIGINS:-}
+      MAX_CLIENTS: ${SCORCHED_MAX_CLIENTS:-1000}
+      MAX_ROOMS: ${SCORCHED_MAX_ROOMS:-200}
+      NODE_OPTIONS: --max-old-space-size=192
+    ports: ["127.0.0.1:${SCORCHED_PORT:-8095}:8080"]
+    networks: [web-backend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+networks:
+  web-backend:
+    name: ${SCORCHED_NETWORK:-web-backend}
+    external: true

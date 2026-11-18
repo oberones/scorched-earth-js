@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.test-output/
+evidence/
+tests/shots/
+__pycache__/
+models/blender/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.zip
