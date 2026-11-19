@@ -23,6 +23,8 @@ COPY src/config.js src/terrain.js src/physics.js src/ai.js src/game.js ./src/
 COPY server/server.js ./server/server.js
 COPY server/lib/ ./server/lib/
 COPY --from=build /app/dist/ ./dist/
+# Normalize checkout-dependent modes while keeping every runtime file immutable.
+RUN chmod -R a=rX /srv/scorched
 ENV NODE_ENV=production \
     PORT=8080 \
     HOST=0.0.0.0 \

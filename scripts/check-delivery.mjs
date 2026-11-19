@@ -8,7 +8,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { gunzipSync } from 'node:zlib';
+import engine from '../server/lib/engine.js';
 
+const { CFG } = engine;
 const bases = process.argv.slice(2).length ? process.argv.slice(2) : ['http://127.0.0.1:8080/'];
 const local = existsSync('dist/index.html') ? readFileSync('dist/index.html') : null;
 const sha256 = (b) => createHash('sha256').update(b).digest('base64');
@@ -72,7 +74,7 @@ function play(base) {
       else if (m.t === 'shop') send({ t: 'shopDone' });
       else if (m.t === 'snap' && m.stage === 'play' && m.terrain) {
         assert.equal(m.tanks.length, 2);
-        assert(Buffer.from(m.terrain, 'base64').length === 2560, 'terrain payload');
+        assert.equal(Buffer.from(m.terrain, 'base64').length, CFG.W * 2, 'terrain payload bytes');
         clearTimeout(fail);
         send({ t: 'leaveRoom' });
         ws.close();
@@ -106,11 +108,17 @@ for (const raw of bases) {
   assert.equal(head.status, 200); assert.equal(head.body.length, 0);
 
   for (const missing of ['missing.js', '.env', 'package.json', 'Dockerfile', 'server/server.js', 'src/game.js',
-    'deploy/.env', 'deploy/compose.production.yml', '.github/workflows/publish.yml', '../server/server.js', '%2e%2e/server/server.js']) {
+    'deploy/.env', 'deploy/compose.production.yml', '.github/workflows/publish.yml']) {
     const r = await request(base + missing);
     assert.equal(r.status, 404, missing);
     assert.equal(r.headers['cache-control'], 'no-cache', missing);
     checkHeaders(r, missing);
+  }
+  // A reverse proxy may reject traversal before the request reaches the app, so
+  // only the rejection status is shared across direct and path-prefix delivery.
+  for (const traversal of ['../server/server.js', '%2e%2e/server/server.js',
+    '..%2fserver%2fserver.js', '%2e%2e%2fserver%2fserver.js']) {
+    assert.equal((await request(base + traversal)).status, 404, traversal);
   }
   for (const method of ['POST', 'PUT', 'DELETE', 'OPTIONS']) assert.equal((await request(base, { method })).status, 405, method);
 

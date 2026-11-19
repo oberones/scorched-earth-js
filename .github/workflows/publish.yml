@@ -66,7 +66,17 @@ jobs:
       - name: Check HTTP and WebSocket delivery
         run: |
           PORT=18080 LOG_LEVEL=quiet node server/server.js &
-          for attempt in $(seq 1 20); do curl -fsS http://127.0.0.1:18080/healthz >/dev/null && break; sleep 0.5; done
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then ready=1; break; fi
+            sleep 0.5
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'Server did not become ready on port 18080 within 10 seconds.' >&2
+            exit 1
+          fi
           node scripts/check-delivery.mjs http://127.0.0.1:18080/
 
   build-pr:
@@ -104,7 +114,16 @@ jobs:
           npm run build
           docker run -d --name scorched-pr --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m -p 127.0.0.1:18080:8080 scorched-earth:pr
-          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz >/dev/null && break; sleep 1; done
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'Container did not become ready on port 18080 within 30 seconds.' >&2
+            docker logs scorched-pr >&2 || true
+            exit 1
+          fi
           node scripts/check-delivery.mjs http://127.0.0.1:18080/
           docker stop -t 30 scorched-pr >/dev/null
           test "$(docker inspect scorched-pr --format '{{.State.ExitCode}}')" = 0
