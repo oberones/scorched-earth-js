@@ -1,3 +1,9 @@
+## v0.2.1 (2026-11-18)
+
+### Fix
+
+- add version information to application display
+
 ## 0.2.0 (2026-11-18)
 
 ### Feat
