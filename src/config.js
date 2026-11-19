@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Scorched Earth - game configuration & content tables
 // ---------------------------------------------------------------------------
+const APP_VERSION = '0.2.0';
+
 const CFG = {
   W: 1280,               // logical world width  (px)
   H: 720,                // logical world height (px)

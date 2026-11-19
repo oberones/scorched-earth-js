@@ -16,6 +16,6 @@ for (const f of FILES) {
 }
 // top-level class/const declarations aren't properties of the context; export explicitly
 const engine = vm.runInContext(
-  '({ Game, AI, Physics, Terrain, RNG, CFG, WEAPONS, ITEMS, DIFFICULTY, TEAM_COLORS, WEAPON_ORDER, DEFAULT_NAMES })', ctx);
+  '({ APP_VERSION, Game, AI, Physics, Terrain, RNG, CFG, WEAPONS, ITEMS, DIFFICULTY, TEAM_COLORS, WEAPON_ORDER, DEFAULT_NAMES })', ctx);
 
 module.exports = engine;

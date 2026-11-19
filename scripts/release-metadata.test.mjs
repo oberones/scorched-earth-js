@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { releaseMetadata } from './release-metadata.mjs';
 
@@ -10,6 +11,14 @@ const event = {
   GITHUB_REF: 'refs/tags/v1.2.3',
   GITHUB_SHA: sha,
 };
+
+test('JavaScript app version matches package metadata', () => {
+  const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version;
+  const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
+  const appVersion = config.match(/^const APP_VERSION = '([^']+)';$/m)?.[1];
+  assert.equal(appVersion, packageVersion);
+  assert.match(appVersion, /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/);
+});
 
 for (const tag of ['v1.2.3', '1.2.3', 'v0.0.0']) {
   test(`stable release ${tag} publishes version, commit and latest`, () => {

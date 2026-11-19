@@ -80,7 +80,7 @@ Set branch protection to require `Validate release metadata`, `Build and test` a
 
 Tags must be valid SemVer without leading zeros or `+build` metadata. Prereleases never move `latest`. Publications are serialised, but `latest` follows publication order. Prefer the digest for production and rollback; only the digest is immutable.
 
-Versions are managed with commitizen (`.cz.toml`, `version_provider = "npm"`, so `package.json` holds the version). `cz bump` updates `package.json` and `CHANGELOG.md` and creates the tag. You can also tag manually:
+Versions are managed with commitizen (`.cz.toml`, `version_provider = "npm"`). `package.json` is the source of truth, while `version_files` keeps the browser/server `APP_VERSION` in `src/config.js` synchronized. `cz bump` updates both files and `CHANGELOG.md`, then creates the tag. You can also tag manually:
 
 ```sh
 git tag -a v0.1.0 -m "Release 0.1.0"

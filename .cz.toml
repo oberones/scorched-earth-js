@@ -1,7 +1,9 @@
 [tool.commitizen]
 name = "cz_conventional_commits"
-tag_format = "$version"
+tag_format = "v$version"
+legacy_tag_formats = ["$version"]
 version_scheme = "semver"
 version_provider = "npm"
+version_files = ["src/config.js:APP_VERSION"]
 update_changelog_on_bump = true
 major_version_zero = true

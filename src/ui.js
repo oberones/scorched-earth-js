@@ -27,6 +27,7 @@ const UI = {
 
   // ----------------------------------------------------------------- setup
   renderSetup() {
+    $('#app-version').textContent = `v${APP_VERSION}`;
     const list = $('#player-list');
     list.innerHTML = '';
     UI.setupPlayers.forEach((p, i) => {

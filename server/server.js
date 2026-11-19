@@ -16,6 +16,7 @@ const path = require('path');
 const { attachWebSocketServer } = require('./lib/websocket');
 const { loadDirectory } = require('./lib/static');
 const { Lobby } = require('./lib/lobby');
+const { APP_VERSION } = require('./lib/engine');
 
 const PORT = Number.isInteger(+process.env.PORT) && process.env.PORT !== '' ? +process.env.PORT : 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -36,7 +37,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/healthz') {
     const status = stopping ? 503 : 200;
     res.writeHead(status, Object.assign({ 'content-type': 'application/json', 'cache-control': 'no-store' }, site.headers));
-    res.end(JSON.stringify(Object.assign({ ok: !stopping, version: process.env.APP_VERSION || 'dev', uptime: Math.round((Date.now() - started) / 1000) }, lobby.stats())));
+    res.end(JSON.stringify(Object.assign({ ok: !stopping, version: process.env.APP_VERSION || APP_VERSION, uptime: Math.round((Date.now() - started) / 1000) }, lobby.stats())));
     return;
   }
   site.handle(req, res);
