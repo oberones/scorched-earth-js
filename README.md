@@ -6,7 +6,8 @@ A modern take on the classic artillery game, played in the browser. You can play
 - **Game loop:** setup → arms dealer → rounds of turn-based play → round summary → final standings. It supports 2–6 combatants, hotseat play for several humans, and AI-only games you can watch.
 - **Ballistics:** a fixed-step (120 Hz) simulation with gravity and wind. The wind can be gusty, steady or calm. Walls can be open, rubber (bouncy) or wrap-around. A damaged tank has less maximum power (health × 10, as in the classic game).
 - **Destructible terrain:** a procedural heightmap (hills, mountains or plains). Blasts carve craters and the soil above collapses into them. Dirt balls build mounds. Tanks fall and take fall damage unless they carry a parachute.
-- **Weapons:** Baby Missile (unlimited), Missile, Leapfrog (bounces), MIRV (splits at the top of its arc), Baby Nuke, Nuke, Dirt Ball, Digger. **Items:** Shield, Parachute, Repair Kit.
+- **Tank movement:** buy fuel, press **F**, and drive left or right before taking your shot. Flat ground costs one fuel per pixel, climbing costs more, steep hills block movement, and driving over a cliff can cause fall damage.
+- **Weapons:** Baby Missile (unlimited), Missile, Leapfrog (bounces), MIRV (splits at the top of its arc), Baby Nuke, Nuke, Dirt Ball, Digger. **Items:** Shield, Parachute, Repair Kit, Fuel.
 - **Scoring:** 1 point per point of damage dealt, +100 per kill and +150 for surviving a round. You lose points for hitting yourself. Points turn into cash for the shop.
 - **AI:** solves its shots by running the same physics as the game, so it knows exactly where a shot will land. Each AI picks a random opponent (human or AI) and keeps attacking it until it is destroyed, then picks a new random target; targets reset every round. Each difficulty adds aim noise that shrinks as the AI keeps firing at the same target ("bracketing"):
   - **Easy** ignores wind and picks weapons at random.
@@ -46,7 +47,7 @@ Behind a reverse proxy, `/ws` needs the WebSocket upgrade headers (see `deploy/n
 
 ### Architecture
 - **Server-authoritative.** The server loads the *same* engine files the browser uses (`src/config, terrain, physics, ai, game`) and runs each room's match at 60 Hz.
-- **Clients send only inputs:** `aim`, `fire`, `repair`, `buy`, `sell`, `shopDone`. They receive 30 Hz snapshots: tanks, shells, blasts and events. Terrain is sent only when it changes, quantised to about 3.4 KB.
+- **Clients send only inputs:** `aim`, `move`, `fire`, `repair`, `buy`, `sell`, `shopDone`. They receive 30 Hz snapshots: tanks, shells, blasts and events. Terrain is sent only when it changes, quantised to about 3.4 KB.
 - **Smooth rendering:** the browser plays snapshots back about 110 ms behind live, interpolating tanks, turrets and shells (`NetGame` in `src/net.js`). It then hands them to the unchanged renderer and HUD.
 - **Your own turret responds instantly** and streams your aim at 12 Hz, so others watch you line up the shot.
 - **WebSocket layer:** `server/lib/websocket.js` is a small RFC 6455 implementation with ping keepalive, a 64 KB frame limit and per-client rate limiting.
@@ -89,5 +90,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md#validate) for the full validation list.
 To develop, you can also open `src/index.html` directly, since it loads the scripts one by one.
 
 ## Controls
-←/→ aim · ↑/↓ power (Shift = fine) · Q/E/Tab weapon · R repair · Space fire · T chat (online) · Esc pause/menu.
+←/→ aim · ↑/↓ power (Shift = fine) · F movement mode (then ←/→ to drive, Esc to finish) · Q/E/Tab weapon · R repair · Space fire · T chat (online) · Esc pause/menu.
 Your turret keeps its angle and power between turns (it resets each round, when tanks are re-placed). You can also click and drag on the battlefield to aim; a plain click doesn't change your aim. The ◄ ► − + buttons work by mouse or touch.

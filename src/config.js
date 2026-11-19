@@ -16,6 +16,8 @@ const CFG = {
   MAX_HEALTH: 100,
   FALL_SAFE: 18,         // px a tank can drop without damage
   FALL_DMG: 0.6,         // damage per px fallen beyond FALL_SAFE
+  MOVE_SPEED: 20,        // tank movement speed in world px/s
+  MAX_CLIMB: Math.PI / 4,// steepest slope a tank can drive uphill
   START_MONEY: 2500,
   ROUND_BASE_INCOME: 1500,
   MONEY_PER_POINT: 15,
@@ -38,6 +40,7 @@ const ITEMS = {
   shield:    { name: 'Shield',    desc: 'Absorbs 80 damage',          price: 1500, bundle: 1 },
   parachute: { name: 'Parachute', desc: 'No fall damage (one use)',   price: 500,  bundle: 2 },
   repair:    { name: 'Repair Kit',desc: 'Restore 50 health (R key)',   price: 900,  bundle: 1 },
+  fuel:      { name: 'Fuel',      desc: 'Move before firing (F key)',  price: 500,  bundle: 50 },
 };
 
 // AI personalities. aimErr = degrees std-dev, powErr = fraction of power std-dev.

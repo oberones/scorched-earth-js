@@ -31,6 +31,15 @@
           <div><div id="hud-weapon">Baby Missile</div><div id="hud-ammo" class="sub">∞</div></div>
           <button class="mini" id="wpn-next" title="Next weapon (E / Tab)">›</button>
         </div>
+        <div class="hud-group move" id="hud-move">
+          <button class="mini move-toggle" id="btn-move" title="Move tank (F)">⛽</button>
+          <span id="hud-fuel" class="val">0</span>
+          <div id="move-controls" hidden>
+            <button class="mini" data-move="-1" title="Move left (←)">◄</button>
+            <button class="move-done" id="move-done">Done</button>
+            <button class="mini" data-move="1" title="Move right (→)">►</button>
+          </div>
+        </div>
         <div class="hud-group wind"><span class="lbl">Wind</span><div id="hud-wind"></div></div>
         <div class="hud-group items" id="hud-items"></div>
         <div class="spacer"></div>
@@ -64,7 +73,7 @@
         <label>Wind <select id="opt-wind"><option value="changing">Gusty</option><option value="constant">Steady</option><option value="none">Calm</option></select></label>
       </div>
       <div class="row start-row"><button id="start" class="primary">Start local battle</button><button id="btn-online" class="secondary">Play online</button></div>
-      <p class="keys">← → aim · ↑ ↓ power (hold Shift for fine control) · Q/E weapon · R repair · Space fire · or drag on the battlefield to aim</p>
+      <p class="keys">← → aim · ↑ ↓ power (Shift = fine) · F move with fuel · Q/E weapon · R repair · Space fire · or drag to aim</p>
     </div>
   </section>
 
@@ -165,6 +174,7 @@
         <div><b>← / →</b> rotate turret</div><div><b>↑ / ↓</b> adjust power</div>
         <div><b>Shift</b> fine adjustment</div><div><b>Space / Enter</b> fire</div>
         <div><b>Q / E / Tab</b> switch weapon</div><div><b>R</b> use repair kit</div>
+        <div><b>F</b> move with fuel</div><div><b>← / → while moving</b> drive tank</div>
         <div><b>Drag on map</b> point &amp; set power</div><div><b>Esc</b> pause / menu</div>
         <div><b>T</b> chat (online)</div><div></div>
       </div>

@@ -31,6 +31,12 @@ button, select, input { font: inherit; color: inherit; }
 .dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 10px currentColor; background: currentColor; }
 .sub { color: var(--muted); font-size: 11px; }
 .hud-group { display: flex; align-items: center; gap: 5px; padding: 0 7px; border-left: 1px solid var(--line); }
+.move-toggle:disabled { opacity: .35; cursor: default; }
+#move-controls { display: flex; align-items: center; gap: 4px; }
+#move-controls[hidden] { display: none; }
+.move-done { height: 24px; padding: 0 7px; border-radius: 6px; border: 1px solid rgba(255,194,61,.45); background: rgba(255,194,61,.12); color: var(--fire2); cursor: pointer; }
+.hud-bar.moving [data-hold], .hud-bar.moving .weapon, .hud-bar.moving #btn-fire, .hud-bar.moving .items button { opacity: .3; pointer-events: none; }
+.hud-bar.moving #hud-move { border-color: var(--fire2); background: rgba(255,194,61,.08); }
 .lbl { text-transform: uppercase; font-size: 10px; letter-spacing: 1.2px; color: var(--muted); margin-right: 2px; }
 .val { font-family: var(--display); font-size: 17px; min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
 .mini { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255,255,255,.06); cursor: pointer; line-height: 1; padding: 0; user-select: none; touch-action: none; }

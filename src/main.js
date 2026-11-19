@@ -4,12 +4,13 @@
 (() => {
   const canvas = $('#game');
   const renderer = new Renderer(canvas);
-  let game = null, demo = true, paused = false, speed = 1, lastPhase = null, roundTimer = 0;
+  let game = null, demo = true, paused = false, speed = 1, lastPhase = null, roundTimer = 0, moveStepAcc = 0;
   let lastSettings = null;
-  const keys = {}, hold = { angle: 0, power: 0 };
+  const keys = {}, hold = { angle: 0, power: 0, move: 0 };
 
   // ------------------------------------------------------------ game setup
   function startDemo() {
+    UI.setMovementMode(false);
     demo = true;
     const players = [0, 1, 2, 3].map(i => ({ name: DEFAULT_NAMES[i], color: TEAM_COLORS[i].hex, type: 'ai', difficulty: ['hard', 'expert', 'medium', 'hard'][i] }));
     game = new Game({ players, rounds: 999, seed: (Math.random() * 1e9) | 0 });
@@ -22,7 +23,7 @@
 
   function startGame(settings) {
     Sfx.init();
-    demo = false; paused = false;
+    demo = false; paused = false; UI.setMovementMode(false);
     lastSettings = settings;
     $('#btn-speed').hidden = false; $('#chatfeed').hidden = true;
     game = new Game(settings);
@@ -56,13 +57,22 @@
 
   // ------------------------------------------------------------------ input
   const humanTurn = () => game && !demo && (!paused || game.isNet) && game.canControl(game.current);
+  const setMovementMode = (on) => {
+    const fuel = game && game.current ? game.current.items.fuel || 0 : 0;
+    UI.setMovementMode(!!on && humanTurn() && fuel >= 1);
+    moveStepAcc = 0; hold.move = 0;
+    if (!UI.movementMode) { keys.ArrowLeft = false; keys.ArrowRight = false; }
+  };
 
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     keys[e.key] = true;
+    if (e.key === 'Escape' && UI.movementMode) { e.preventDefault(); setMovementMode(false); return; }
     if (e.key === 'Escape' && !demo && game && game.round) { togglePause(); return; }
     if ((e.key === 't' || e.key === 'T') && game && game.isNet) { e.preventDefault(); keys[e.key] = false; Net.openChatInput(); return; }
     if (!humanTurn()) return;
+    if ((e.key === 'f' || e.key === 'F') && !e.repeat) { e.preventDefault(); setMovementMode(!UI.movementMode); return; }
+    if (UI.movementMode) { if (e.key.startsWith('Arrow')) e.preventDefault(); return; }
     const t = game.current;
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); game.fire(); }
     else if (e.key === 'Tab' || e.key === 'e' || e.key === 'E') { e.preventDefault(); game.cycleWeapon(t, e.shiftKey ? -1 : 1); Sfx.click(); }
@@ -71,11 +81,22 @@
     if (e.key.startsWith('Arrow')) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => { keys[e.key] = false; });
-  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; hold.angle = hold.power = 0; });
+  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; hold.angle = hold.power = hold.move = 0; });
 
   function applyHeldInput(dt) {
-    if (!humanTurn()) return;
+    if (!humanTurn()) { if (UI.movementMode) setMovementMode(false); return; }
     const t = game.current, fine = keys.Shift;
+    if (UI.movementMode) {
+      const dir = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0) + hold.move;
+      if (!dir) { moveStepAcc = 0; return; }
+      moveStepAcc += dt * CFG.MOVE_SPEED;
+      while (moveStepAcc >= 1 && UI.movementMode) {
+        moveStepAcc--;
+        const result = game.moveTank(t, Math.sign(dir));
+        if (!result.moved || result.falling) setMovementMode(false);
+      }
+      return;
+    }
     const da = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0) + hold.angle;
     const dp = (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0) + hold.power;
     if (da) t.angle = Math.max(0, Math.min(180, t.angle + da * (fine ? 8 : 50) * dt));
@@ -99,13 +120,27 @@
     b.addEventListener('pointercancel', stop);
     b.addEventListener('pointerleave', stop);
   }
-  $('#btn-fire').onclick = () => { if (humanTurn()) game.fire(); };
-  $('#wpn-prev').onclick = () => { if (humanTurn()) { game.cycleWeapon(game.current, -1); Sfx.click(); } };
-  $('#wpn-next').onclick = () => { if (humanTurn()) { game.cycleWeapon(game.current, 1); Sfx.click(); } };
-  $('#hud-items').addEventListener('click', (e) => { if (e.target.id === 'btn-repair' && humanTurn()) game.useRepair(game.current); });
+  for (const b of document.querySelectorAll('[data-move]')) {
+    const start = (e) => {
+      e.preventDefault(); b.setPointerCapture?.(e.pointerId);
+      if (!UI.movementMode || !humanTurn()) return;
+      hold.move = +b.dataset.move; moveStepAcc = 1;
+    };
+    const stop = () => { hold.move = 0; moveStepAcc = 0; };
+    b.addEventListener('pointerdown', start);
+    b.addEventListener('pointerup', stop);
+    b.addEventListener('pointercancel', stop);
+    b.addEventListener('pointerleave', stop);
+  }
+  $('#btn-move').onclick = () => setMovementMode(!UI.movementMode);
+  $('#move-done').onclick = () => setMovementMode(false);
+  $('#btn-fire').onclick = () => { if (humanTurn() && !UI.movementMode) game.fire(); };
+  $('#wpn-prev').onclick = () => { if (humanTurn() && !UI.movementMode) { game.cycleWeapon(game.current, -1); Sfx.click(); } };
+  $('#wpn-next').onclick = () => { if (humanTurn() && !UI.movementMode) { game.cycleWeapon(game.current, 1); Sfx.click(); } };
+  $('#hud-items').addEventListener('click', (e) => { if (e.target.id === 'btn-repair' && humanTurn() && !UI.movementMode) game.useRepair(game.current); });
   $('#btn-sound').onclick = (e) => { e.currentTarget.textContent = Sfx.toggle() ? '🔇' : '🔊'; };
   $('#btn-speed').onclick = (e) => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; e.currentTarget.textContent = `${speed}×`; };
-  $('#btn-help').onclick = () => togglePause();
+  $('#btn-help').onclick = () => { setMovementMode(false); togglePause(); };
   $('#help-resume').onclick = () => togglePause(false);
   $('#help-quit').onclick = () => {
     paused = false;
@@ -133,12 +168,12 @@
   // once the pointer has actually moved a few pixels while held down.
   let downAt = null;
   canvas.addEventListener('pointerdown', (e) => {
-    if (!humanTurn()) return;
+    if (!humanTurn() || UI.movementMode) return;
     downAt = { x: e.clientX, y: e.clientY }; dragging = false;
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (!downAt || !humanTurn()) return;
+    if (!downAt || !humanTurn() || UI.movementMode) return;
     if (!dragging && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 8) return;
     dragging = true;
     aimAt(e);
@@ -195,7 +230,7 @@
   // hooks for the online client (net.js)
   window.App = {
     useGame(g) {
-      demo = false; paused = false; speed = 1; $('#btn-speed').textContent = '1×';
+      demo = false; paused = false; speed = 1; UI.setMovementMode(false); $('#btn-speed').textContent = '1×';
       game = g; renderer.setGame(g); lastPhase = null; roundTimer = null;
       $('#hud').hidden = false; $('#scoreboard').hidden = false;
       $('#btn-speed').hidden = !!g.isNet; $('#chatfeed').hidden = !g.isNet;

@@ -16,7 +16,10 @@ const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'serve
 });
 
 class TestClient {
-  constructor(name) { this.name = name; this.msgs = []; this.waiters = []; this.fired = new Set(); this.autoFire = true; }
+  constructor(name) {
+    this.name = name; this.msgs = []; this.waiters = []; this.fired = new Set(); this.autoFire = true;
+    this.moveBeforeFire = false; this.moveAttempts = new Map(); this.moveSuccesses = 0;
+  }
   connect(token) {
     return new Promise((res, rej) => {
       this.ws = new WebSocket(URL);
@@ -33,8 +36,16 @@ class TestClient {
           if (m.terrain) this.gotTerrain = (this.gotTerrain || 0) + 1;
           const key = `${m.round}:${m.turnCount}`;
           if (this.autoFire && m.stage === 'play' && m.phase === 'aim' && m.turn === this.tank && !this.fired.has(key)) {
-            this.fired.add(key);
             const me = m.tanks[this.tank];
+            const attempt = this.moveAttempts.get(key);
+            if (attempt && (me.x !== attempt.x || me.items.fuel < attempt.fuel)) this.moveSuccesses++;
+            if (this.moveBeforeFire && me.items.fuel >= 1 && !attempt) {
+              this.moveAttempts.set(key, { x: me.x, fuel: me.items.fuel });
+              this.send({ t: 'move', d: me.x < 640 ? 1 : -1 });
+              this.send({ t: 'move', d: me.x < 640 ? -1 : 1 });
+              return;
+            }
+            this.fired.add(key);
             // aim roughly at the nearest live enemy
             const foes = m.tanks.filter(t => t.alive && t.id !== this.tank);
             const f = foes.sort((a, b) => Math.abs(a.x - me.x) - Math.abs(b.x - me.x))[0];
@@ -118,9 +129,25 @@ class TestClient {
   await A.next('shop', 3000);
   A.send({ t: 'buy', id: 'missile' });
   await A.wait(m => m.t === 'snap' && m.tanks[A.tank].inv.missile === 5, 3000, 'missile bought');
+  A.send({ t: 'buy', id: 'fuel' }); B.send({ t: 'buy', id: 'fuel' });
+  await A.wait(m => m.t === 'snap' && m.tanks[A.tank].items.fuel === 50, 3000, 'fuel bought');
+  await B.wait(m => m.t === 'snap' && m.tanks[B.tank].items.fuel === 50, 3000, 'fuel bought');
+  A.autoFire = false; B.autoFire = false;
   A.send({ t: 'shopDone' }); B.send({ t: 'shopDone' });
-  await A.wait(m => m.t === 'snap' && m.stage === 'play' && m.terrain, 5000, 'round start');
+  const opening = await A.wait(m => m.t === 'snap' && m.stage === 'play' && m.phase === 'aim' && m.terrain, 5000, 'round start');
   pass('vote starts the game, shop works, round begins with terrain');
+
+  const idle = opening.turn === A.tank ? B : A;
+  const idleOpening = idle === A ? opening : await B.wait(m => m.t === 'snap' && m.stage === 'play' &&
+    m.phase === 'aim' && m.turnCount === opening.turnCount, 3000, 'matching opening snapshot');
+  const idleState = idleOpening.tanks[idle.tank];
+  idle.send({ t: 'move', d: 1 });
+  const rejected = await idle.wait(m => m.t === 'snap' && m.stage === 'play' && m.phase === 'aim' && m.turnCount === opening.turnCount,
+    3000, 'out-of-turn move rejected', idleOpening);
+  assert.strictEqual(rejected.tanks[idle.tank].x, idleState.x);
+  assert.strictEqual(rejected.tanks[idle.tank].items.fuel, idleState.items.fuel);
+  A.moveBeforeFire = true; A.autoFire = true; B.autoFire = true;
+  pass('server rejects out-of-turn movement without spending fuel');
 
   // mid-game: B drops and comes back with its token
   await sleep(1500);
@@ -149,6 +176,8 @@ class TestClient {
   const firedA = A.fired.size, firedB = B2.fired.size;
   console.log(`    shots fired by clients: Alice ${firedA}, Bob ${firedB}; snapshots seen by Alice: ${A.msgs.filter(m => m.t === 'snap').length}`);
   assert(firedA > 0 && firedB > 0);
+  assert(A.moveSuccesses > 0, 'Alice should move with fuel before at least one shot');
+  pass('fuel movement is authoritative and a moved tank can still fire');
   pass('full 2-round game completes and the room returns to the lobby');
 
   S.send({ t: 'leaveRoom' });

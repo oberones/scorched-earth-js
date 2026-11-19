@@ -13,6 +13,54 @@ const AI = {
     return enemies.length ? rng.pick(enemies) : null;
   },
 
+  // A cheap trajectory search used only to decide whether a short move is useful.
+  coarseError(game, tank, target, position, wind) {
+    const saved = { x: tank.x, y: tank.y };
+    tank.x = position.x; tank.y = position.y;
+    const tc = Physics.tankCenter(target), right = target.x >= tank.x;
+    let best = Infinity;
+    for (let a = 15; a <= 165; a += 15) {
+      const angle = right ? a : 180 - a;
+      for (let power = 150; power <= game.maxPower(tank); power += 100) {
+        const r = Physics.simulate(game.terrain, game.tanks, tank, angle, power, wind, game.settings.walls);
+        if (!r.lost) best = Math.min(best, r.tank === target ? 0 : Math.hypot(r.x - tc.x, r.y - tc.y));
+      }
+    }
+    tank.x = saved.x; tank.y = saved.y;
+    return best;
+  },
+
+  planMove(game, tank) {
+    const fuel = tank.items.fuel || 0;
+    if (fuel < 1) return { direction: 0, steps: 0 };
+    const prof = DIFFICULTY[tank.difficulty] || DIFFICULTY.medium;
+    const target = AI.pickTarget(game, tank, prof, game.rng);
+    if (!target) return { direction: 0, steps: 0 };
+    tank.ai.target = target;
+    const candidates = [
+      { x: tank.x, y: tank.y, steps: 0, direction: 0 },
+      game.previewMovement(tank, -1, 20),
+      game.previewMovement(tank, 1, 20),
+    ].filter(c => c.steps === 0 || c.cost <= fuel + 1e-6);
+    const enemies = AI.enemiesOf(game, tank);
+    const nearest = Math.min(...enemies.map(e => Math.abs(e.x - tank.x)));
+    let best = candidates[0];
+    if (nearest < 150) {
+      const clearance = c => Math.min(...enemies.map(e => Math.hypot(c.x - e.x, (c.y - 9) - (e.y - 9))));
+      for (const c of candidates) if (clearance(c) > clearance(best)) best = c;
+    } else {
+      const wind = prof.useWind ? game.wind : 0;
+      const base = AI.coarseError(game, tank, target, candidates[0], wind);
+      let error = base;
+      for (const c of candidates.slice(1)) {
+        const e = AI.coarseError(game, tank, target, c, wind);
+        if (e < error) { error = e; best = c; }
+      }
+      if (base - error < 10) best = candidates[0];
+    }
+    return { direction: best.direction, steps: best.steps };
+  },
+
   // Grid search + refinement over (angle, power) using the real physics step.
   solve(game, tank, target, wind) {
     const tc = Physics.tankCenter(target);
@@ -100,10 +148,10 @@ const AI = {
   shop(tank, rng) {
     const prof = tank.difficulty;
     const wish = {
-      easy:   ['missile', 'babynuke', 'parachute', 'missile', 'dirt'],
-      medium: ['missile', 'parachute', 'babynuke', 'missile', 'leapfrog', 'shield'],
-      hard:   ['shield', 'babynuke', 'missile', 'mirv', 'parachute', 'nuke', 'repair'],
-      expert: ['shield', 'repair', 'babynuke', 'mirv', 'nuke', 'missile', 'parachute', 'babynuke'],
+      easy:   ['missile', 'fuel', 'babynuke', 'parachute', 'missile', 'dirt'],
+      medium: ['missile', 'fuel', 'parachute', 'babynuke', 'missile', 'leapfrog', 'shield'],
+      hard:   ['shield', 'fuel', 'babynuke', 'missile', 'mirv', 'fuel', 'parachute', 'nuke', 'repair'],
+      expert: ['shield', 'fuel', 'repair', 'babynuke', 'mirv', 'fuel', 'nuke', 'missile', 'parachute', 'babynuke'],
     }[prof] || [];
     const list = prof === 'easy' ? wish.slice().sort(() => rng.next() - 0.5) : wish;
     const reserve = prof === 'expert' ? 0 : 300;

@@ -28,6 +28,75 @@ test('dirt ball raises the ground', () => {
   assert(run('T2.ground[200]') < 160);
 });
 
+test('tank movement spends fuel, charges for climbing, and preserves the turn', () => {
+  run(`
+    var M = new Game({ seed: 1, players: [
+      { name: 'Mover', type: 'human', color: '#f00' }, { name: 'Other', type: 'human', color: '#00f' }] });
+    M.terrain.ground.fill(300); M.phase = 'aim'; M.turn = 0; M.turnCount = 7;
+    M.tanks[0].x = 200; M.tanks[0].y = M.restY(M.tanks[0]); M.tanks[0].items.fuel = 10;
+    M.tanks[1].x = 500; M.tanks[1].y = M.restY(M.tanks[1]);
+    var flatMove = M.moveTank(M.tanks[0], 1);
+  `);
+  assert(run('flatMove.moved'));
+  assert.strictEqual(run('M.tanks[0].x'), 201);
+  assert.strictEqual(run('M.tanks[0].items.fuel'), 9);
+  assert.strictEqual(run('M.turnCount'), 7);
+  assert.strictEqual(run('M.phase'), 'aim');
+
+  run(`
+    for (var x = 0; x < M.terrain.w; x++) M.terrain.ground[x] = 400 - x * 0.25;
+    M.tanks[0].y = M.restY(M.tanks[0]); var fuelBeforeHill = M.tanks[0].items.fuel;
+    var hillMove = M.moveTank(M.tanks[0], 1);
+  `);
+  assert(run('hillMove.moved'));
+  assert(run('hillMove.cost > 1 && hillMove.cost < 2'));
+  assert(Math.abs(run('fuelBeforeHill - M.tanks[0].items.fuel') - run('hillMove.cost')) < 1e-6);
+});
+
+test('movement rejects invalid turns, bounds, collisions, steep climbs, and missing fuel', () => {
+  run(`
+    var B = new Game({ seed: 2, players: [
+      { name: 'A', type: 'human', color: '#f00' }, { name: 'B', type: 'human', color: '#00f' }] });
+    B.terrain.ground.fill(300); B.phase = 'aim'; B.turn = 0;
+    var a = B.tanks[0], b = B.tanks[1]; a.x = 200; b.x = 233; a.y = B.restY(a); b.y = B.restY(b); a.items.fuel = 20;
+    var collision = B.moveTank(a, 1), wrongTank = B.moveTank(b, 1), invalidDir = B.moveTank(a, 0);
+    b.x = 500; b.y = B.restY(b); a.x = CFG.TANK_RADIUS;
+    var edge = B.moveTank(a, -1);
+    a.x = 200; for (var x = 0; x < B.terrain.w; x++) B.terrain.ground[x] = 650 - x * 2;
+    a.y = B.restY(a); var steep = B.moveTank(a, 1);
+    B.terrain.ground.fill(300); a.y = B.restY(a); a.items.fuel = 0; var empty = B.moveTank(a, 1);
+    B.phase = 'flight'; a.items.fuel = 20; var flight = B.moveTank(a, 1);
+  `);
+  for (const name of ['collision', 'wrongTank', 'invalidDir', 'edge', 'steep', 'empty', 'flight']) assert(!run(`${name}.moved`), name);
+  assert.strictEqual(run('collision.reason'), 'tank');
+  assert.strictEqual(run('steep.reason'), 'slope');
+});
+
+test('a steep descent settles, applies fall rules, and resumes the same turn', () => {
+  run(`
+    var F = new Game({ seed: 3, players: [
+      { name: 'A', type: 'human', color: '#f00' }, { name: 'B', type: 'human', color: '#00f' }] });
+    F.terrain.ground.fill(420); for (var x = 0; x <= 200; x++) F.terrain.ground[x] = 320;
+    F.phase = 'aim'; F.turn = 0; F.turnCount = 4;
+    var ft = F.tanks[0]; ft.x = 209; ft.y = F.restY(ft); ft.items.fuel = 10;
+    F.tanks[1].x = 600; F.tanks[1].y = F.restY(F.tanks[1]);
+    var fallMove = F.moveTank(ft, 1), frames = 0;
+    while (F.phase === 'settle' && frames++ < 1000) F.update(1 / 60);
+  `);
+  assert(run('fallMove.falling'));
+  assert.strictEqual(run('F.phase'), 'aim');
+  assert.strictEqual(run('F.turn'), 0);
+  assert.strictEqual(run('F.turnCount'), 4);
+  assert(run('ft.health < 100 && ft.health > 0'));
+
+  run(`
+    F.phase = 'aim'; ft.x = 209; ft.y = 320; ft.health = 100; ft.items.fuel = 10; ft.items.parachute = 1;
+    F.moveTank(ft, 1); frames = 0; while (F.phase === 'settle' && frames++ < 1000) F.update(1 / 60);
+  `);
+  assert.strictEqual(run('ft.health'), 100);
+  assert.strictEqual(run('ft.items.parachute'), 0);
+});
+
 test('AI simulation matches live flight exactly', () => {
   run(`
     var G = new Game({ seed: 42, rounds: 1, players: [
@@ -174,6 +243,29 @@ test('shop: buy and sell update money and inventory', () => {
   assert.strictEqual(run('m0 - t.money'), 600);
   run('G.sell(t, "missile")');
   assert.strictEqual(run('t.inventory.missile'), 0);
+  run(`var fuelMoney = t.money; G.buy(t, 'fuel');`);
+  assert.strictEqual(run('t.items.fuel'), 50);
+  assert.strictEqual(run('fuelMoney - t.money'), 500);
+  run(`G.startRound(); var fuelAfterRoundStart = t.items.fuel; G.sell(t, 'fuel');`);
+  assert.strictEqual(run('fuelAfterRoundStart'), 50);
+  assert.strictEqual(run('t.items.fuel'), 0);
+});
+
+test('AI buys fuel and moves away from a nearby enemy before aiming', () => {
+  run(`
+    var AM = new Game({ seed: 8, players: [
+      { name: 'Bot', type: 'ai', difficulty: 'expert', color: '#f00' },
+      { name: 'Enemy', type: 'human', color: '#00f' }] });
+    var bot = AM.tanks[0], enemy = AM.tanks[1]; bot.money = 10000; AI.shop(bot, AM.rng); var fuelBought = bot.items.fuel;
+    AM.terrain.ground.fill(300); AM.phase = 'aim'; AM.turn = 0;
+    bot.x = 300; bot.y = AM.restY(bot); enemy.x = 400; enemy.y = AM.restY(enemy);
+    var movePlan = AI.planMove(AM, bot), startX = bot.x;
+    for (var f = 0; f < 120 && bot.aiPlan == null; f++) AM.update(1 / 60);
+  `);
+  assert(run('fuelBought >= 100'));
+  assert.strictEqual(run('movePlan.direction'), -1);
+  assert(run('bot.x < startX'));
+  assert(run('bot.items.fuel < fuelBought'));
 });
 
 console.log(`\n${passed} tests passed`);

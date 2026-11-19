@@ -3,7 +3,7 @@
 //
 // Protocol: JSON text messages, each with a `t` (type) field.
 //   client -> server: hello, createRoom, joinRoom, leaveRoom, color, vote, settings,
-//                     addBot, removeBot, chat, aim, fire, repair, buy, sell, shopDone
+//                     addBot, removeBot, chat, aim, move, fire, repair, buy, sell, shopDone
 //   server -> client: welcome, rooms, room, error, chat, gameStart, snap, shop,
 //                     roundOver, gameOver
 // The server runs the real Game; clients send inputs and render snapshots.
@@ -401,6 +401,7 @@ class Room {
     const myTurn = this.stage === 'play' && g.phase === 'aim' && g.current === t && t.type === 'human';
     switch (m.t) {
       case 'aim': if (myTurn) this.applyAim(t, m); break;
+      case 'move': if (myTurn && (m.d === -1 || m.d === 1)) g.moveTank(t, m.d); break;
       case 'fire': if (myTurn) { this.applyAim(t, m); g.fire(); } break;
       case 'repair': if (myTurn) g.useRepair(t); break;
       case 'buy': case 'sell':

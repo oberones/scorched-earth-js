@@ -5,6 +5,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 const UI = {
+  movementMode: false,
   setupPlayers: [
     { name: 'You', color: 0, type: 'human' },
     { name: DEFAULT_NAMES[1], color: 1, type: 'easy' },
@@ -14,6 +15,15 @@ const UI = {
 
   show(id) { for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== id; },
   hideScreens() { for (const s of document.querySelectorAll('.screen')) s.hidden = true; },
+  setMovementMode(on) {
+    UI.movementMode = !!on;
+    const bar = $('.hud-bar');
+    if (bar) bar.classList.toggle('moving', UI.movementMode);
+    const controls = $('#move-controls');
+    if (controls) controls.hidden = !UI.movementMode;
+    const button = $('#btn-move');
+    if (button) button.title = UI.movementMode ? 'Finish moving (F)' : 'Move tank (F)';
+  },
 
   // ----------------------------------------------------------------- setup
   renderSetup() {
@@ -89,6 +99,7 @@ const UI = {
       for (const [kind, id] of entries) {
         const def = kind === 'w' ? WEAPONS[id] : ITEMS[id];
         const owned = kind === 'w' ? (t.inventory[id] || 0) : (t.items[id] || 0);
+        const shownOwned = id === 'fuel' ? Math.floor(owned) : owned;
         const card = document.createElement('div');
         card.className = 'card';
         const stats = kind === 'w'
@@ -96,7 +107,7 @@ const UI = {
           : def.desc;
         const pct = kind === 'w' ? Math.min(100, def.radius / 1.15) : 0;
         card.innerHTML = `
-          <div class="t"><span style="color:${kind === 'w' ? def.color : '#7fe7ff'}">${def.name}</span><span class="own">owned ${owned}</span></div>
+          <div class="t"><span style="color:${kind === 'w' ? def.color : '#7fe7ff'}">${def.name}</span><span class="own">owned ${shownOwned}</span></div>
           <div class="stats">${stats}</div>
           ${kind === 'w' ? `<div class="bar"><i style="width:${pct}%;background:${def.color}"></i></div>` : ''}
           <div class="stats">$${def.price.toLocaleString()} for ${def.bundle}</div>
@@ -152,8 +163,9 @@ const UI = {
     if (!t) return;
     const bar = $('.hud-bar');
     const human = t.type === 'human';
-    const control = game.canControl(t);
-    bar.classList.toggle('ai-turn', !control);
+    const rawControl = game.canControl(t);
+    const control = rawControl && !UI.movementMode;
+    bar.classList.toggle('ai-turn', !rawControl);
     $('#hud-dot').style.color = t.color;
     $('#hud-name').textContent = t.name;
     const mine = game.isNet ? t.id === game.myTankId : human;
@@ -179,6 +191,9 @@ const UI = {
       : `<span class="arrow" style="transform:scaleX(${w > 0 ? 1 : -1})">➜</span>${Math.abs(w)}`;
     $('#hud-round').textContent = `${game.round}/${game.settings.rounds}`;
     $('#btn-fire').disabled = !control;
+    const fuel = Math.max(0, t.items.fuel || 0);
+    $('#hud-fuel').textContent = `${Math.floor(fuel)}`;
+    $('#btn-move').disabled = !rawControl || fuel < 1;
     const items = [];
     if (t.shield > 0) items.push(`<span class="chip" style="color:#7fe7ff">Shield ${t.shield}</span>`);
     if (t.items.parachute) items.push(`<span class="chip">Chute ×${t.items.parachute}</span>`);

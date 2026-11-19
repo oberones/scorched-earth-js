@@ -46,6 +46,12 @@ class NetGame {
     this.net.send({ t: 'fire', a: t.angle, p: t.power, w: t.weapon });
     return true;
   }
+  moveTank(t, direction) {
+    const dir = Math.sign(direction);
+    if (!this.canControl(t) || (dir !== -1 && dir !== 1) || !(t.items.fuel >= 1)) return { moved: false, reason: 'fuel' };
+    this.net.send({ t: 'move', d: dir });
+    return { moved: true };
+  }
   cycleWeapon(t, dir = 1) { Game.prototype.cycleWeapon.call(this, t, dir); }
   useRepair(t) { if (this.canControl(t)) this.net.send({ t: 'repair' }); }
   buy(t, id) { this.net.send({ t: 'buy', id }); return false; }   // server confirms via snapshot

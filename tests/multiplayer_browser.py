@@ -56,7 +56,9 @@ try:
         A.wait_for_selector("#screen-shop:not([hidden])", timeout=10000)
         A.screenshot(path=f"{SHOTS}/mp3_shop.png")
         A.locator(".card", has_text="Missile").first.locator("button.buy").click()
+        A.locator(".card", has_text="Fuel").first.locator("button.buy").click()
         wait_until(A, "window.__scorched.Net.game.me.inventory.missile === 5", 5000)
+        wait_until(A, "window.__scorched.Net.game.me.items.fuel === 50", 5000)
         A.click("#shop-done")
         A.wait_for_selector("#screen-wait:not([hidden])")
         B.click("#shop-done")
@@ -70,6 +72,13 @@ try:
             for name, pg in (("Alice", A), ("Bob", B)):
                 st = pg.evaluate(STATE)
                 if st and st["mine"]:
+                    if name == "Alice" and shots["Alice"] == 0:
+                        before = pg.evaluate("(() => { const t = window.__scorched.Net.game.me; return { x: t.x, fuel: t.items.fuel }; })()")
+                        pg.keyboard.press("f")
+                        pg.keyboard.down("ArrowRight"); pg.wait_for_timeout(450); pg.keyboard.up("ArrowRight")
+                        pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+                        moved = pg.evaluate("(() => { const t = window.__scorched.Net.game.me; return { x: t.x, fuel: t.items.fuel }; })()")
+                        assert moved["x"] != before["x"] and moved["fuel"] < before["fuel"], "online movement was not confirmed"
                     pg.keyboard.down("ArrowUp"); pg.wait_for_timeout(250); pg.keyboard.up("ArrowUp")
                     if name == "Alice" and shots["Alice"] == 0: pg.keyboard.press("e")  # missile
                     if "aim" not in captured:

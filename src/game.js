@@ -43,6 +43,7 @@ class Game {
     this.wind = Math.round(rng.range(-CFG.MAX_WIND, CFG.MAX_WIND));
     if (this.settings.windMode === 'none') this.wind = 0;
     this.projectiles = []; this.blasts = []; this.pending = [];
+    this.resumeAfterSettle = false;
     this.turnCount = 0;
 
     // spread tanks across the map in random order
@@ -77,6 +78,7 @@ class Game {
   beginTurn() {
     const t = this.current;
     t.aiPlan = null;
+    t.aiMove = null;
     t.aiTimer = 0;
     if (!(t.inventory[t.weapon] > 0)) t.weapon = 'baby';
     this.emit('turn', { tank: t });
@@ -149,6 +151,61 @@ class Game {
     return true;
   }
 
+  // --------------------------------------------------------------- movement
+  // Calculate one terrain-aware movement step without mutating game state.
+  movementStep(t, direction) {
+    const dir = Math.sign(direction);
+    if (!t || !t.alive || (dir !== -1 && dir !== 1)) return { moved: false, reason: 'invalid' };
+    const x = t.x + dir;
+    if (x < CFG.TANK_RADIUS || x > this.terrain.w - CFG.TANK_RADIUS) return { moved: false, reason: 'bounds' };
+
+    const oldY = this.restY(t);
+    const probe = { x };
+    const y = this.restY(probe);
+    const rise = Math.max(0, oldY - y);
+    const slope = Math.abs(this.terrain.slopeAt(x, 9));
+    if (rise > 0.01 && slope > CFG.MAX_CLIMB) return { moved: false, reason: 'slope' };
+
+    const cy = y - 9;
+    for (const other of this.tanks) {
+      if (other === t || !other.alive) continue;
+      if (Math.hypot(x - other.x, cy - (other.y - 9)) < CFG.TANK_RADIUS * 2) return { moved: false, reason: 'tank' };
+    }
+    const cost = 1 + rise;
+    if ((t.items.fuel || 0) + 1e-6 < cost) return { moved: false, reason: 'fuel', cost };
+    const drop = y - oldY;
+    return { moved: true, x, y, cost, falling: drop > 0.5 && (slope > CFG.MAX_CLIMB || drop > 1) };
+  }
+
+  moveTank(t, direction) {
+    if (this.phase !== 'aim' || t !== this.current) return { moved: false, reason: 'turn' };
+    const step = this.movementStep(t, direction);
+    if (!step.moved) return step;
+    t.items.fuel = Math.max(0, (t.items.fuel || 0) - step.cost);
+    t.x = step.x;
+    if (step.falling) {
+      // Keep the old height so the existing settle physics performs the drop.
+      this.resumeAfterSettle = true;
+      this.phase = 'settle';
+      this.settleTime = 0;
+    } else t.y = step.y;
+    return step;
+  }
+
+  // Return the furthest legal, non-falling endpoint without spending fuel.
+  previewMovement(t, direction, maxSteps = 20) {
+    const saved = { x: t.x, y: t.y, fuel: t.items.fuel };
+    let cost = 0, steps = 0;
+    for (; steps < maxSteps; steps++) {
+      const step = this.movementStep(t, direction);
+      if (!step.moved || step.falling) break;
+      t.x = step.x; t.y = step.y; t.items.fuel -= step.cost; cost += step.cost;
+    }
+    const result = { x: t.x, y: t.y, cost, steps, direction: Math.sign(direction) };
+    t.x = saved.x; t.y = saved.y; t.items.fuel = saved.fuel;
+    return result;
+  }
+
   // ------------------------------------------------------------------ firing
   // Classic rule: a damaged tank can't push as much powder.
   maxPower(t) { return Math.max(150, Math.round(t.health * 10)); }
@@ -170,6 +227,7 @@ class Game {
     this.projectiles.push(p);
     t.lastShot = { angle: t.angle, power: t.power };
     this.phase = 'flight';
+    this.resumeAfterSettle = false;
     this.flightTime = 0;
     this.emit('fire', { tank: t, weapon: t.weapon, x: p.x, y: p.y, angle: t.angle });
     return true;
@@ -237,6 +295,17 @@ class Game {
   updateAim(dt) {
     const t = this.current;
     if (t.type !== 'ai') return;
+    if (!t.aiMove) t.aiMove = AI.planMove(this, t);
+    if (t.aiMove.steps > 0) {
+      t.aiMove.acc = (t.aiMove.acc || 0) + dt * CFG.MOVE_SPEED;
+      while (t.aiMove.acc >= 1 && t.aiMove.steps > 0 && this.phase === 'aim') {
+        t.aiMove.acc--;
+        const moved = this.moveTank(t, t.aiMove.direction);
+        if (!moved.moved || moved.falling) t.aiMove.steps = 0;
+        else t.aiMove.steps--;
+      }
+      if (this.phase !== 'aim' || t.aiMove.steps > 0) return;
+    }
     if (!t.aiPlan) {
       if (t.health <= 50) this.useRepair(t);
       t.aiPlan = AI.plan(this, t); t.aiTimer = 0; t.weapon = t.aiPlan.weapon;
@@ -337,7 +406,11 @@ class Game {
       const alive = this.alive();
       const cap = 30 * this.tanks.length;
       if (alive.length <= 1 || this.turnCount >= cap) this.endRound();
-      else this.nextTurn();
+      else if (this.resumeAfterSettle && this.current.alive) {
+        this.resumeAfterSettle = false;
+        this.phase = 'aim';
+      }
+      else { this.resumeAfterSettle = false; this.nextTurn(); }
     }
   }
 }

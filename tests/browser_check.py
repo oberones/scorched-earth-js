@@ -24,7 +24,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(300)
     pg.screenshot(path=f"{SHOTS}/2_shop.png")
     # buy a couple of things then start
-    for name in ("Baby Nuke", "Parachute"):
+    for name in ("Baby Nuke", "Fuel"):
         pg.locator(".card", has_text=name).first.locator("button.buy").click()
     pg.click("#shop-done")
     pg.wait_for_timeout(500)
@@ -35,6 +35,18 @@ with sync_playwright() as p:
     while time.time() - t0 < 90 and fired < 2:
         st = pg.evaluate("(() => { const g = window.__scorched.game; return { phase: g.phase, human: g.current.type === 'human' }; })()")
         if st["phase"] == "aim" and st["human"]:
+            if fired == 0:
+                before = pg.evaluate("(() => { const t = window.__scorched.game.current; return { x: t.x, fuel: t.items.fuel }; })()")
+                pg.keyboard.press("f")
+                pg.keyboard.down("ArrowRight"); pg.wait_for_timeout(350); pg.keyboard.up("ArrowRight")
+                pg.keyboard.press("Escape")
+                moved = pg.evaluate("(() => { const t = window.__scorched.game.current; return { x: t.x, fuel: t.items.fuel }; })()")
+                if moved["x"] == before["x"]:
+                    pg.keyboard.press("f")
+                    pg.keyboard.down("ArrowLeft"); pg.wait_for_timeout(350); pg.keyboard.up("ArrowLeft")
+                    pg.keyboard.press("Escape")
+                    moved = pg.evaluate("(() => { const t = window.__scorched.game.current; return { x: t.x, fuel: t.items.fuel }; })()")
+                assert moved["x"] != before["x"] and moved["fuel"] < before["fuel"], "tank did not spend fuel to move"
             pg.keyboard.down("ArrowUp"); pg.wait_for_timeout(400); pg.keyboard.up("ArrowUp")
             pg.keyboard.down("ArrowLeft"); pg.wait_for_timeout(200); pg.keyboard.up("ArrowLeft")
             pg.keyboard.press("e")
