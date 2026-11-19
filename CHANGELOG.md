@@ -1,3 +1,15 @@
+## 0.2.0 (2026-11-18)
+
+### Feat
+
+- add movement and consumable fuel
+
+## v0.1.1 (2026-11-18)
+
+### Fix
+
+- update shot mechanics
+
 ## 0.1.0
 
 ### Feat
