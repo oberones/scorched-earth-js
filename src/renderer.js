@@ -17,7 +17,7 @@ class Renderer {
     this.game = null;
   }
 
-  // Render at the display's real pixel density; game logic stays in 1280x720 units.
+  // Render at the display's real pixel density; game logic stays in CFG.W x CFG.H units.
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     const k = Math.max(1, Math.min(2.5, ((rect.width || CFG.W) * (window.devicePixelRatio || 1)) / CFG.W));

@@ -14,6 +14,63 @@ const run = code => vm.runInContext(code, ctx);
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok -', name); };
 
+test('procedural terrain is deterministic, bounded, and increasingly rugged', () => {
+  run(`
+    var terrainStats = {};
+    for (const style of ['flat', 'hills', 'mountains']) {
+      var ranges = [], slopes = [];
+      for (var seed = 1; seed <= 20; seed++) {
+        var sample = new Terrain(CFG.W, CFG.H);
+        sample.generate(new RNG(seed), style);
+        var lo = Infinity, hi = -Infinity, slope = 0;
+        for (var sx = 0; sx < sample.w; sx++) {
+          lo = Math.min(lo, sample.ground[sx]); hi = Math.max(hi, sample.ground[sx]);
+          if (sx) slope += Math.abs(sample.ground[sx] - sample.ground[sx - 1]);
+          if (sample.ground[sx] < CFG.H * 0.2 - 0.01 || sample.ground[sx] > CFG.H - 36 + 0.01) throw new Error(style + ' outside bounds');
+        }
+        ranges.push(hi - lo); slopes.push(slope / (sample.w - 1));
+      }
+      terrainStats[style] = {
+        range: ranges.reduce((a, b) => a + b, 0) / ranges.length,
+        slope: slopes.reduce((a, b) => a + b, 0) / slopes.length,
+      };
+    }
+    var deterministicA = new Terrain(CFG.W, CFG.H), deterministicB = new Terrain(CFG.W, CFG.H);
+    deterministicA.generate(new RNG(98765), 'mountains'); deterministicB.generate(new RNG(98765), 'mountains');
+  `);
+  assert.deepStrictEqual(Array.from(run('deterministicA.ground')), Array.from(run('deterministicB.ground')));
+  const stats = run('terrainStats');
+  assert(stats.flat.range < stats.hills.range && stats.hills.range < stats.mountains.range);
+  assert(stats.flat.slope < stats.hills.slope && stats.hills.slope < stats.mountains.slope);
+  assert(stats.hills.range >= 0.48 * run('CFG.H'), 'hills should have substantial vertical relief');
+  assert(stats.mountains.range >= 0.62 * run('CFG.H'), 'mountains should span most of the battlefield height');
+  assert(stats.hills.slope >= 0.9 && stats.mountains.slope >= 1.3, 'rugged presets should retain craggy local detail');
+});
+
+test('six-player rounds use the expanded battlefield without crowded spawns', () => {
+  assert.strictEqual(run('CFG.W'), 1536);
+  assert.strictEqual(run('CFG.H'), 864);
+  run(`
+    var closestSpawn = Infinity, spawnPadsAreFlat = true, spawnsInBounds = true;
+    for (var spawnSeed = 1; spawnSeed <= 32; spawnSeed++) {
+      var spawnPlayers = [];
+      for (var pi = 0; pi < 6; pi++) spawnPlayers.push({ name: 'P' + pi, type: 'human', color: TEAM_COLORS[pi].hex });
+      var spawnGame = new Game({ seed: spawnSeed, terrain: 'hills', players: spawnPlayers });
+      spawnGame.startRound();
+      var xs = spawnGame.tanks.map(t => t.x).sort((a, b) => a - b);
+      for (var xi = 1; xi < xs.length; xi++) closestSpawn = Math.min(closestSpawn, xs[xi] - xs[xi - 1]);
+      for (const tank of spawnGame.tanks) {
+        spawnsInBounds = spawnsInBounds && tank.x >= CFG.TANK_RADIUS && tank.x <= CFG.W - CFG.TANK_RADIUS;
+        var left = spawnGame.terrain.heightAt(tank.x - 9), mid = spawnGame.terrain.heightAt(tank.x), right = spawnGame.terrain.heightAt(tank.x + 9);
+        spawnPadsAreFlat = spawnPadsAreFlat && Math.max(left, mid, right) - Math.min(left, mid, right) < 0.01;
+      }
+    }
+  `);
+  assert(run('closestSpawn >= 110'), `closest spawn gap was ${run('closestSpawn')}`);
+  assert(run('spawnsInBounds'));
+  assert(run('spawnPadsAreFlat'));
+});
+
 test('crater lowers terrain and collapses soil into the hole', () => {
   run(`var T = new Terrain(400, 300); T.ground.fill(150); T.crater(200, 150, 30);`);
   const g = run('T.ground');

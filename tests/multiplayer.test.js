@@ -5,6 +5,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const assert = require('assert');
+const { CFG } = require('../server/lib/engine');
 
 const PORT = 18000 + Math.floor(Math.random() * 1000);
 const URL = `ws://127.0.0.1:${PORT}/ws`;
@@ -41,8 +42,8 @@ class TestClient {
             if (attempt && (me.x !== attempt.x || me.items.fuel < attempt.fuel)) this.moveSuccesses++;
             if (this.moveBeforeFire && me.items.fuel >= 1 && !attempt) {
               this.moveAttempts.set(key, { x: me.x, fuel: me.items.fuel });
-              this.send({ t: 'move', d: me.x < 640 ? 1 : -1 });
-              this.send({ t: 'move', d: me.x < 640 ? -1 : 1 });
+              this.send({ t: 'move', d: me.x < CFG.W / 2 ? 1 : -1 });
+              this.send({ t: 'move', d: me.x < CFG.W / 2 ? -1 : 1 });
               return;
             }
             this.fired.add(key);
@@ -135,6 +136,7 @@ class TestClient {
   A.autoFire = false; B.autoFire = false;
   A.send({ t: 'shopDone' }); B.send({ t: 'shopDone' });
   const opening = await A.wait(m => m.t === 'snap' && m.stage === 'play' && m.phase === 'aim' && m.terrain, 5000, 'round start');
+  assert.strictEqual(Buffer.from(opening.terrain, 'base64').length, CFG.W * 2, 'terrain snapshot should include every world column');
   pass('vote starts the game, shop works, round begins with terrain');
 
   const idle = opening.turn === A.tank ? B : A;

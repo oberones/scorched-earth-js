@@ -37,7 +37,11 @@ class Game {
   startRound() {
     this.round++;
     const rng = this.rng;
-    const style = this.settings.terrain === 'random' ? rng.pick(['hills', 'hills', 'mountains', 'flat']) : this.settings.terrain;
+    let style = this.settings.terrain;
+    if (style === 'random') {
+      const terrainRoll = rng.next();
+      style = terrainRoll < 0.5 ? 'hills' : terrainRoll < 0.9 ? 'mountains' : 'flat';
+    }
     this.terrain.generate(rng, style);
     this.theme = rng.int(0, SKY_THEMES.length - 1);
     this.wind = Math.round(rng.range(-CFG.MAX_WIND, CFG.MAX_WIND));
@@ -49,7 +53,7 @@ class Game {
     // spread tanks across the map in random order
     const n = this.tanks.length;
     const order = this.tanks.map((t, i) => i).sort(() => rng.next() - 0.5);
-    const margin = 70, span = (CFG.W - margin * 2) / n;
+    const margin = Math.round(CFG.W * 0.055), span = (CFG.W - margin * 2) / n;
     order.forEach((ti, slot) => {
       const t = this.tanks[ti];
       t.x = Math.round(margin + span * (slot + 0.5) + rng.range(-span * 0.25, span * 0.25));

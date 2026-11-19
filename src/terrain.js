@@ -18,6 +18,12 @@ class RNG {
   }
 }
 
+const TERRAIN_PROFILES = {
+  flat:      { amplitude: 0.06,  waves: 5, ridges: 1, ridgeAmplitude: 0.08, roughness: 0.4 },
+  hills:     { amplitude: 0.18,  waves: 6, ridges: 2, ridgeAmplitude: 0.12, roughness: 0.7 },
+  mountains: { amplitude: 0.275, waves: 7, ridges: 3, ridgeAmplitude: 0.08, roughness: 0.9 },
+};
+
 // Heightmap terrain: ground[x] is the screen-space y of the surface in column x
 // (y grows downward). Blasts remove a disc of dirt; dirt above a blast collapses
 // down into the hole, like the original game's falling soil.
@@ -31,21 +37,36 @@ class Terrain {
 
   generate(rng, style = 'hills') {
     const { w, h } = this;
+    const profile = TERRAIN_PROFILES[style] || TERRAIN_PROFILES.hills;
     const base = h * rng.range(0.55, 0.7);
-    const amp = style === 'mountains' ? h * 0.26 : style === 'flat' ? h * 0.05 : h * 0.15;
-    // sum of random sines + midpoint-displacement-style roughness
-    const waves = [];
-    for (let i = 0; i < 5; i++) {
-      waves.push({ f: rng.range(0.6, 1.4) * (i + 1) * Math.PI * 2 / w, p: rng.range(0, Math.PI * 2), a: amp / (i + 1) ** 1.1 });
+    const amp = h * profile.amplitude;
+    // Broad waves establish the skyline; folded sine waves add sharper ridges.
+    const waves = [], ridges = [];
+    for (let i = 0; i < profile.waves; i++) {
+      waves.push({
+        f: rng.range(0.65, 1.55) * (i + 1) * Math.PI * 2 / w,
+        p: rng.range(0, Math.PI * 2),
+        a: amp / (i + 1) ** 1.02,
+      });
+    }
+    for (let i = 0; i < profile.ridges; i++) {
+      ridges.push({
+        f: rng.range(2.2, 4.2) * (i + 1) * Math.PI * 2 / w,
+        p: rng.range(0, Math.PI * 2),
+        a: amp * profile.ridgeAmplitude / (i + 1) ** 0.8,
+      });
     }
     let rough = 0;
     for (let x = 0; x < w; x++) {
       let y = base;
       for (const wv of waves) y -= Math.sin(x * wv.f + wv.p) * wv.a;
-      rough += rng.range(-1, 1) * 0.6; rough *= 0.97;
-      this.ground[x] = Math.max(h * 0.22, Math.min(h - 30, y + rough));
+      for (const ridge of ridges) {
+        y -= (1 - 2 * Math.abs(Math.sin(x * ridge.f + ridge.p))) * ridge.a;
+      }
+      rough += rng.range(-1, 1) * profile.roughness; rough *= 0.968;
+      this.ground[x] = Math.max(h * 0.2, Math.min(h - 36, y + rough));
     }
-    this.smooth(2);
+    this.smooth(1);
     this.version++;
   }
 

@@ -4,8 +4,8 @@
 const APP_VERSION = '0.2.1';
 
 const CFG = {
-  W: 1280,               // logical world width  (px)
-  H: 720,                // logical world height (px)
+  W: 1536,               // logical world width  (px)
+  H: 864,                // logical world height (px)
   DT: 1 / 120,           // fixed physics step (s)
   GRAVITY: 400,          // px/s^2
   MAX_SPEED: 900,        // launch speed at power 1000 (px/s)
