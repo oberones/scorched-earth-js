@@ -4,24 +4,13 @@
 const AI = {
   enemiesOf(game, tank) { return game.tanks.filter(t => t.alive && t !== tank); },
 
+  // Every AI picks a random opponent (human or AI) and pursues it until it is destroyed,
+  // then picks a new random one. Memory resets each round.
   pickTarget(game, tank, prof, rng) {
+    const cur = tank.ai.target;
+    if (cur && cur.alive && cur !== tank) return cur;
     const enemies = AI.enemiesOf(game, tank);
-    if (!enemies.length) return null;
-    // stick with the previous target while we're homing in on it
-    if (tank.ai.target && tank.ai.target.alive && rng.next() < 0.75) return tank.ai.target;
-    if (!prof.smartTarget) {
-      if (prof === DIFFICULTY.easy) return rng.pick(enemies);
-      return enemies.reduce((a, b) => (Math.abs(a.x - tank.x) < Math.abs(b.x - tank.x) ? a : b));
-    }
-    const leader = Math.max(...enemies.map(e => e.score));
-    let best = null, bestScore = -Infinity;
-    for (const e of enemies) {
-      let s = (CFG.MAX_HEALTH - e.health - e.shield) * 1.2 - Math.abs(e.x - tank.x) * 0.04;
-      if (e.score === leader) s += 25;
-      if (e.type === 'human') s += 10; // classic AIs love picking on people
-      if (s > bestScore) { bestScore = s; best = e; }
-    }
-    return best;
+    return enemies.length ? rng.pick(enemies) : null;
   },
 
   // Grid search + refinement over (angle, power) using the real physics step.

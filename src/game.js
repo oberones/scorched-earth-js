@@ -308,15 +308,14 @@ class Game {
     this.pending = this.pending.filter(d => d.delay > 0);
     for (const d of due) this.detonate(d.x, d.y, d.weapon, d.owner, d.scale);
 
-    // tank falling
+    // tank falling - wrecks fall too, so destroyed tanks settle into their craters
     let moving = false;
     for (const t of this.tanks) {
-      if (!t.alive) continue;
       const rest = this.restY(t);
       if (t.y < rest - 0.5) {
         if (!t.falling) {
           t.falling = true; t.fallStart = t.y; t.vy = 0;
-          if (rest - t.y > CFG.FALL_SAFE && (t.items.parachute || 0) > 0) { t.items.parachute--; t.chute = true; }
+          if (t.alive && rest - t.y > CFG.FALL_SAFE && (t.items.parachute || 0) > 0) { t.items.parachute--; t.chute = true; }
         }
         t.vy = t.chute ? 70 : t.vy + CFG.GRAVITY * dt;
         t.y = Math.min(rest, t.y + t.vy * dt);
@@ -324,7 +323,7 @@ class Game {
       } else if (t.falling) {
         t.falling = false;
         const drop = t.y - t.fallStart;
-        if (!t.chute && drop > CFG.FALL_SAFE) {
+        if (t.alive && !t.chute && drop > CFG.FALL_SAFE) {
           this.applyDamage(t, Math.round((drop - CFG.FALL_SAFE) * CFG.FALL_DMG), null);
         }
         t.chute = false;

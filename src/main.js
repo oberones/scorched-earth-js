@@ -129,9 +129,23 @@
     t.angle = Math.max(0, Math.min(180, (Math.atan2(Math.max(dy, -5), dx) * 180) / Math.PI));
     t.power = Math.max(0, Math.min(game.maxPower(t), Math.hypot(dx, dy) * 2.2));
   };
-  canvas.addEventListener('pointerdown', (e) => { if (!humanTurn()) return; dragging = true; canvas.setPointerCapture(e.pointerId); aimAt(e); });
-  canvas.addEventListener('pointermove', (e) => { if (dragging && humanTurn()) aimAt(e); });
-  canvas.addEventListener('pointerup', () => { dragging = false; });
+  // A plain click (e.g. to focus the game) must not touch the aim: only start aiming
+  // once the pointer has actually moved a few pixels while held down.
+  let downAt = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!humanTurn()) return;
+    downAt = { x: e.clientX, y: e.clientY }; dragging = false;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!downAt || !humanTurn()) return;
+    if (!dragging && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 8) return;
+    dragging = true;
+    aimAt(e);
+  });
+  const endDrag = () => { downAt = null; dragging = false; };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
 
   // setup screen
   $('#add-player').onclick = () => {

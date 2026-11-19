@@ -106,6 +106,66 @@ test('mixed difficulty: expert outscores easy over several games', () => {
   assert(expertWins >= 4);
 });
 
+test('destroyed tanks fall into the crater instead of hovering', () => {
+  run(`
+    var G = new Game({ seed: 7, rounds: 1, players: [
+      { name: 'A', type: 'human', color: '#f00' }, { name: 'B', type: 'human', color: '#0f0' },
+      { name: 'C', type: 'human', color: '#00f' }] });
+    G.startRound();
+    var victim = G.tanks[1]; victim.health = 1;
+    var before = victim.y;
+    G.phase = 'settle'; G.settleTime = 0;
+    G.detonate(victim.x, victim.y + 4, 'nuke', G.tanks[0]);   // big crater right under it
+    for (var i = 0; i < 600 && G.phase === 'settle'; i++) G.update(1 / 60);
+  `);
+  assert.strictEqual(run('victim.alive'), false, 'victim should be destroyed');
+  const y = run('victim.y'), rest = run('G.restY(victim)'), before = run('before');
+  assert(rest - before > 20, 'crater should be well below the old position');
+  assert(Math.abs(y - rest) < 1, `wreck should rest on the ground (y=${y.toFixed(1)}, ground=${rest.toFixed(1)})`);
+  assert.strictEqual(run('victim.falling'), false);
+});
+
+test('each AI picks a random opponent and pursues it until it is destroyed', () => {
+  run(`
+    var picks = [], violations = [];
+    var origPlan = AI.plan;
+    AI.plan = function (game, tank) {
+      var prev = tank.ai.target, prevRound = tank.ai.round;
+      var plan = origPlan(game, tank);
+      if (plan.target) {
+        picks.push({ round: game.round, shooter: tank.id, target: plan.target.id, human: plan.target.type === 'human' });
+        // switching targets is only allowed once the old one is dead (or a new round began)
+        if (prev && prev !== plan.target && prev.alive && prevRound === game.round) violations.push(tank.name + ' switched off a live target');
+      }
+      tank.ai.round = game.round;
+      return plan;
+    };
+    for (var seed = 21; seed < 29; seed++) {
+      var G = new Game({ seed: seed, rounds: 2, players: [
+        { name: 'Human', type: 'human', color: '#f00' },
+        { name: 'E', type: 'ai', difficulty: 'easy', color: '#0f0' },
+        { name: 'M', type: 'ai', difficulty: 'medium', color: '#00f' },
+        { name: 'X', type: 'ai', difficulty: 'expert', color: '#ff0' }] });
+      G.startRound();
+      for (var f = 0; f < 400000 && G.phase !== 'gameOver'; f++) {
+        if (G.phase === 'aim' && G.current.type === 'human') { G.current.angle = 20 + Math.random() * 140; G.current.power = 400; G.fire(); }
+        G.update(1 / 30); G.events.length = 0;
+        if (G.phase === 'roundOver') G.continueAfterRound(); else if (G.phase === 'shop') G.startRound();
+      }
+    }
+    AI.plan = origPlan;
+  `);
+  assert.strictEqual(run('violations.length'), 0, run('violations.join("; ")'));
+  // across all AI shots, targets should be spread over every combatant, not just the human
+  const firsts = run('picks');
+  const humanShare = firsts.filter(p => p.human).length / firsts.length;
+  const distinctTargets = new Set(firsts.map(p => p.target)).size;
+  console.log(`    ${firsts.length} AI shots, ${(humanShare * 100).toFixed(0)}% aimed at the human, ${distinctTargets} different targets`);
+  assert(humanShare < 0.6, 'AIs should not gang up on the human');
+  assert(humanShare > 0.1, 'the human should still get shot at');
+  assert.strictEqual(distinctTargets, 4);
+});
+
 test('shop: buy and sell update money and inventory', () => {
   run(`var G = new Game({ seed: 5, players: [{ name: 'H', type: 'human', color: '#fff' }, { name: 'A', type: 'ai', color: '#000' }] });
        var t = G.tanks[0]; var m0 = t.money; var ok = G.buy(t, 'missile');`);

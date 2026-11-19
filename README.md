@@ -8,10 +8,10 @@ A modern take on the classic artillery game, played in the browser. You can play
 - **Destructible terrain:** a procedural heightmap (hills, mountains or plains). Blasts carve craters and the soil above collapses into them. Dirt balls build mounds. Tanks fall and take fall damage unless they carry a parachute.
 - **Weapons:** Baby Missile (unlimited), Missile, Leapfrog (bounces), MIRV (splits at the top of its arc), Baby Nuke, Nuke, Dirt Ball, Digger. **Items:** Shield, Parachute, Repair Kit.
 - **Scoring:** 1 point per point of damage dealt, +100 per kill and +150 for surviving a round. You lose points for hitting yourself. Points turn into cash for the shop.
-- **AI:** solves its shots by running the same physics as the game, so it knows exactly where a shot will land. Each difficulty adds aim noise that shrinks as the AI keeps firing at the same target ("bracketing"):
-  - **Easy** ignores wind and picks random targets and weapons.
-  - **Medium** reads wind and targets the nearest enemy.
-  - **Hard / Expert** choose targets by threat and weakness, pick weapons that avoid blowing themselves up, and shop smarter.
+- **AI:** solves its shots by running the same physics as the game, so it knows exactly where a shot will land. Each AI picks a random opponent (human or AI) and keeps attacking it until it is destroyed, then picks a new random target; targets reset every round. Each difficulty adds aim noise that shrinks as the AI keeps firing at the same target ("bracketing"):
+  - **Easy** ignores wind and picks weapons at random.
+  - **Medium** reads wind and uses its better weapons when they're safe.
+  - **Hard / Expert** aim more precisely, pick weapons that won't blow themselves up, and shop smarter.
 - **3D assets:** low-poly tank, missile and nuke models. The renderer draws them on a 2D canvas with flat shading, specular highlights and depth sorting, and the barrel is jointed so it follows the aim.
 
 ## Online multiplayer
@@ -90,4 +90,4 @@ To develop, you can also open `src/index.html` directly, since it loads the scri
 
 ## Controls
 ←/→ aim · ↑/↓ power (Shift = fine) · Q/E/Tab weapon · R repair · Space fire · T chat (online) · Esc pause/menu.
-You can also drag on the battlefield to aim. The ◄ ► − + buttons work by mouse or touch.
+Your turret keeps its angle and power between turns (it resets each round, when tanks are re-placed). You can also click and drag on the battlefield to aim; a plain click doesn't change your aim. The ◄ ► − + buttons work by mouse or touch.

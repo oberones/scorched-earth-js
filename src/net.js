@@ -67,6 +67,7 @@ class NetGame {
   activate(s) {
     if (s.ctl) { if (this.onControl) this.onControl(s.ctl); return; }
     const mine = this.canControl(this.me);
+    const sameRound = this.inited && s.round === this.round;
     this.stage = s.stage; this.phase = s.phase; this.round = s.round; this.theme = s.theme;
     this.wind = s.wind; this.turn = s.turn; this.turnCount = s.turnCount; this.turnEnds = s.turnEnds;
     this.settings.rounds = s.rounds;
@@ -78,7 +79,12 @@ class NetGame {
     }
     for (const st of s.tanks) {
       const t = this.tanks[st.id];
-      const keepAim = mine && t === this.me && this.canControl(t);
+      // Our own turret is ours: the server only ever echoes what we sent, so keep the local
+      // aim between turns (no snap-back after firing). Take the server's value at round
+      // start (tanks are re-placed) and while autopilot is flying the tank.
+      const own = t === this.me && sameRound && !st.auto;
+      const keepAim = own || (mine && t === this.me && this.canControl(t));
+      t._own = own;
       Object.assign(t, {
         health: st.h, shield: st.sh, alive: st.alive, falling: st.falling, chute: st.chute,
         score: st.score, money: st.money, kills: st.kills, wins: st.wins, roundPoints: st.rp, roundDamage: st.rd,
@@ -86,6 +92,11 @@ class NetGame {
         inventory: Object.fromEntries(Object.entries(st.inv).map(([k, v]) => [k, v === -1 ? Infinity : v])),
       });
       if (!keepAim) { t.power = st.p; t.weapon = st.w; t._a1 = st.a; }
+      else {
+        if (!(t.inventory[t.weapon] > 0)) t.weapon = st.w;       // ran out of that weapon
+        t.power = Math.min(t.power, this.maxPower(t));          // damaged tanks lose power
+        if (t._a1 == null) t._a1 = st.a;
+      }
       t._x1 = st.x; t._y1 = st.y;
       if (t._x0 == null || Math.abs(t._x0 - st.x) > 200) { t.x = st.x; t.y = st.y; t.angle = st.a; }
     }
@@ -96,6 +107,7 @@ class NetGame {
       this.events.push(e);
     }
     if (this.firedKey && (this.phase !== 'aim' || this.firedKey !== this.turnKey)) this.firedKey = null;
+    this.inited = true;
     if (this.onSnap) this.onSnap(s);
   }
 
@@ -114,7 +126,7 @@ class NetGame {
       const n = next && next.tanks[t.id];
       t.x = n ? t._x1 + (n.x - t._x1) * alpha : t._x1;
       t.y = n ? t._y1 + (n.y - t._y1) * alpha : t._y1;
-      if (!this.canControl(t) && t._a1 != null) t.angle = n ? t._a1 + (n.a - t._a1) * alpha : t._a1;
+      if (!t._own && !this.canControl(t) && t._a1 != null) t.angle = n ? t._a1 + (n.a - t._a1) * alpha : t._a1;
       t._x0 = t.x;
     }
 

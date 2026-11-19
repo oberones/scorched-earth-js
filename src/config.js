@@ -42,10 +42,10 @@ const ITEMS = {
 
 // AI personalities. aimErr = degrees std-dev, powErr = fraction of power std-dev.
 const DIFFICULTY = {
-  easy:   { label: 'Easy',   aimErr: 7,   powErr: 0.12, useWind: false, learn: 0.25, think: 1.6, smartWeapons: false, smartTarget: false },
-  medium: { label: 'Medium', aimErr: 3,   powErr: 0.05, useWind: true,  learn: 0.5,  think: 1.3, smartWeapons: false, smartTarget: false },
-  hard:   { label: 'Hard',   aimErr: 1.2, powErr: 0.02, useWind: true,  learn: 0.7,  think: 1.1, smartWeapons: true,  smartTarget: true },
-  expert: { label: 'Expert', aimErr: 0.3, powErr: 0.006,useWind: true,  learn: 0.9,  think: 0.9, smartWeapons: true,  smartTarget: true },
+  easy:   { label: 'Easy',   aimErr: 7,   powErr: 0.12, useWind: false, learn: 0.25, think: 1.6, smartWeapons: false },
+  medium: { label: 'Medium', aimErr: 3,   powErr: 0.05, useWind: true,  learn: 0.5,  think: 1.3, smartWeapons: false },
+  hard:   { label: 'Hard',   aimErr: 1.2, powErr: 0.02, useWind: true,  learn: 0.7,  think: 1.1, smartWeapons: true },
+  expert: { label: 'Expert', aimErr: 0.3, powErr: 0.006,useWind: true,  learn: 0.9,  think: 0.9, smartWeapons: true },
 };
 
 const TEAM_COLORS = [
