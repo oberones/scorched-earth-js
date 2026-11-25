@@ -19,16 +19,19 @@ LABEL org.opencontainers.image.title="Scorched Earth" \
       org.opencontainers.image.source="${SOURCE}"
 WORKDIR /srv/scorched
 # The server runs the same engine files as the browser; nothing else from src/ is needed.
-COPY src/config.js src/terrain.js src/physics.js src/ai.js src/game.js ./src/
+COPY src/config.js src/terrain.js src/physics.js src/ai.js src/game.js src/leaderboard.js ./src/
 COPY server/server.js ./server/server.js
 COPY server/lib/ ./server/lib/
 COPY --from=build /app/dist/ ./dist/
 # Normalize checkout-dependent modes while keeping every runtime file immutable.
-RUN chmod -R a=rX /srv/scorched
+RUN chmod -R a=rX /srv/scorched \
+    && mkdir -p /var/lib/scorched \
+    && chown 1000:1000 /var/lib/scorched
 ENV NODE_ENV=production \
     PORT=8080 \
     HOST=0.0.0.0 \
     STATIC_DIR=/srv/scorched/dist \
+    LEADERBOARD_FILE=/var/lib/scorched/leaderboard.json \
     APP_VERSION=${VERSION}
 # Application files stay root-owned and read-only to the runtime user (node, 1000).
 USER 1000:1000

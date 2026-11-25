@@ -20,7 +20,7 @@ cleanup() {
   docker logs "$project-proxy" > "$SCORCHED_EVIDENCE_DIR/proxy.log" 2>&1 || true
   if [ "$result" -ne 0 ]; then cat "$SCORCHED_EVIDENCE_DIR/container.log" >&2; fi
   docker rm -f "$project-proxy" >/dev/null 2>&1 || true
-  "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
+  "${compose[@]}" down --remove-orphans --volumes >/dev/null 2>&1 || true
   docker network rm "$project" >/dev/null 2>&1 || true
   exit "$result"
 }
@@ -67,11 +67,20 @@ if [ "${SCORCHED_SKIP_PREFIX:-0}" != "1" ]; then
   node scripts/check-delivery.mjs "http://127.0.0.1:$proxy_port/qa/scorched/" | tee "$SCORCHED_EVIDENCE_DIR/delivery-prefix.json"
 fi
 # Graceful stop: SIGTERM must drain and exit 0 well inside stop_grace_period.
+docker exec "$id" node -e '
+  const { openLeaderboard } = require("./server/lib/leaderboard");
+  openLeaderboard(process.env.LEADERBOARD_FILE).record({
+    round: 1, tanks: [{ type: "human", name: "Volume pilot", score: 250, kills: 1 }]
+  });
+'
 start=$(date +%s)
 "${compose[@]}" stop -t 30 >/dev/null
 elapsed=$(( $(date +%s) - start ))
 code=$(docker inspect "$id" --format '{{.State.ExitCode}}')
 test "$code" = 0 || { echo "container exited with $code" >&2; exit 1; }
 test "$elapsed" -lt 15 || { echo "graceful stop took ${elapsed}s" >&2; exit 1; }
+"${compose[@]}" up -d --no-build --pull never --force-recreate --wait --wait-timeout 90
+test "$("${compose[@]}" ps -q scorched-earth)" != "$id"
+SCORCHED_EXPECT_VOLUME_PILOT=1 node scripts/check-delivery.mjs "http://127.0.0.1:$SCORCHED_PORT/" | tee "$SCORCHED_EVIDENCE_DIR/delivery-recreated.json"
 scope="root and /qa/scorched/ prefix"; [ "${SCORCHED_SKIP_PREFIX:-0}" = "1" ] && scope="root (prefix proxy skipped)"
-echo "Container hardening, $scope delivery, and graceful stop (${elapsed}s) passed. Temporary containers and network will be removed."
+echo "Container hardening, $scope delivery, graceful stop (${elapsed}s), and leaderboard persistence passed."

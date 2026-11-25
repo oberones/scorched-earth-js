@@ -63,6 +63,8 @@
       <h1 class="logo"><span>SCORCHED</span><span>EARTH</span></h1>
       <div id="app-version" class="sub app-version"></div>
       <p class="tag">Artillery duel · destructible worlds · ruthless robots</p>
+      <div class="setup-grid">
+      <div class="battle-setup">
       <h2>Combatants</h2>
       <div id="player-list"></div>
       <button id="add-player" class="ghost">+ Add combatant</button>
@@ -75,6 +77,21 @@
       </div>
       <div class="row start-row"><button id="start" class="primary">Start local battle</button><button id="btn-online" class="secondary">Play online</button></div>
       <p class="keys">← → aim · ↑ ↓ power (Shift = fine) · F move with fuel · Q/E weapon · R repair · Space fire · or drag to aim</p>
+      </div>
+      <section class="leaderboard" aria-labelledby="leaderboard-title">
+        <h2 id="leaderboard-title">Leaderboard</h2>
+        <div class="leaderboard-switch" role="group" aria-label="Leaderboard type">
+          <button id="leaderboard-local" type="button" aria-pressed="true">Local</button>
+          <button id="leaderboard-online" type="button" aria-pressed="false">Online</button>
+        </div>
+        <p id="leaderboard-status" class="sub" role="status"></p>
+        <button id="leaderboard-retry" type="button" class="ghost" hidden>Retry</button>
+        <table id="leaderboard-table" aria-label="Leaderboard standings" hidden>
+          <thead><tr><th scope="col" aria-label="Rank">#</th><th scope="col">Callsign</th><th scope="col">Score</th><th scope="col">Kills</th><th scope="col">Rounds</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      </div>
     </div>
   </section>
 
@@ -193,6 +210,7 @@
 <script src="render3d.js"></script>
 <script src="audio.js"></script>
 <script src="renderer.js"></script>
+<script src="leaderboard.js"></script>
 <script src="ui.js"></script>
 <script src="net.js"></script>
 <script src="main.js"></script>

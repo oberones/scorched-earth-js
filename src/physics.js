@@ -3,7 +3,7 @@
 // AI's trajectory solver, so the AI "predicts" exactly what the game will do.
 // ---------------------------------------------------------------------------
 const Physics = {
-  launchSpeed(power) { return (power / 1000) * CFG.MAX_SPEED; },
+  launchSpeed(power) { return (power / CFG.MAX_POWER) * CFG.MAX_SPEED; },
 
   muzzle(tank, angleDeg) {
     const a = (angleDeg * Math.PI) / 180;

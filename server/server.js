@@ -9,6 +9,7 @@
 //   ALLOWED_ORIGINS   comma list of extra browser origins allowed to open /ws
 //                     (same-host pages are always allowed; "*" allows any)
 //   MAX_CLIENTS=1000  MAX_ROOMS=200  SHUTDOWN_GRACE_MS=2000
+//   LEADERBOARD_FILE=<repo>/.data/leaderboard.json
 // ---------------------------------------------------------------------------
 'use strict';
 const http = require('http');
@@ -16,6 +17,7 @@ const path = require('path');
 const { attachWebSocketServer } = require('./lib/websocket');
 const { loadDirectory } = require('./lib/static');
 const { Lobby } = require('./lib/lobby');
+const { openLeaderboard } = require('./lib/leaderboard');
 const { APP_VERSION } = require('./lib/engine');
 
 const PORT = Number.isInteger(+process.env.PORT) && process.env.PORT !== '' ? +process.env.PORT : 8080;
@@ -28,7 +30,14 @@ const quiet = process.env.LOG_LEVEL === 'quiet';
 const log = (...a) => { if (!quiet) console.log(new Date().toISOString(), ...a); };
 
 const site = loadDirectory(STATIC_DIR, { extraConnect: ORIGINS.filter(o => o !== '*' && o !== 'null') });
-const lobby = new Lobby({ log });
+const leaderboardFile = path.resolve(process.env.LEADERBOARD_FILE || path.join(__dirname, '..', '.data', 'leaderboard.json'));
+let leaderboard;
+try {
+  leaderboard = openLeaderboard(leaderboardFile);
+} catch (error) {
+  console.error('Could not load leaderboard:', error.message);
+}
+const lobby = new Lobby({ log, leaderboard });
 const started = Date.now();
 let stopping = false;
 

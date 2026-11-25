@@ -8,7 +8,8 @@ const CFG = {
   H: 864,                // logical world height (px)
   DT: 1 / 120,           // fixed physics step (s)
   GRAVITY: 400,          // px/s^2
-  MAX_SPEED: 900,        // launch speed at power 1000 (px/s)
+  MAX_SPEED: 900,        // launch speed at maximum power (px/s)
+  MAX_POWER: 1000,
   WIND_ACCEL: 7,         // px/s^2 per wind unit
   MAX_WIND: 10,
   TANK_RADIUS: 17,       // hit radius (px)

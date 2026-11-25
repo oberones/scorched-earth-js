@@ -6,6 +6,7 @@
 //                     addBot, removeBot, chat, aim, move, fire, repair, buy, sell, shopDone
 //   server -> client: welcome, rooms, room, error, chat, gameStart, snap, shop,
 //                     roundOver, gameOver
+//   leaderboard is a read-only request and response before hello.
 // The server runs the real Game; clients send inputs and render snapshots.
 // ---------------------------------------------------------------------------
 'use strict';
@@ -319,6 +320,13 @@ class Room {
 
   roundOver() {
     clearInterval(this.loop);
+    if (this.game.round === this.game.settings.rounds && this.lobby.leaderboard) {
+      try {
+        this.lobby.leaderboard.record(this.game);
+      } catch (error) {
+        console.error('Could not save leaderboard:', error.message);
+      }
+    }
     this.sendSnap();
     this.stage = 'roundOver';
     const g = this.game;
@@ -422,10 +430,11 @@ class Room {
 }
 
 class Lobby {
-  constructor({ log = console.log } = {}) {
+  constructor({ log = console.log, leaderboard = null } = {}) {
     this.clients = new Map();   // token -> Client
     this.rooms = new Map();     // code -> Room
     this.log = log;
+    this.leaderboard = leaderboard;
   }
 
   onConnection(ws) {
@@ -435,6 +444,11 @@ class Lobby {
       try { m = JSON.parse(raw); } catch { return; }
       if (!m || typeof m.t !== 'string') return;
       if (!client) {
+        if (m.t === 'leaderboard') {
+          ws.send(JSON.stringify({ t: 'leaderboard', entries: this.leaderboard?.entries ?? null }));
+          ws.close();
+          return;
+        }
         if (m.t !== 'hello') return;
         client = this.hello(ws, m);
         return;

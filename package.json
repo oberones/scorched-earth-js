@@ -10,7 +10,7 @@
     "start": "node server/server.js",
     "build": "node tools/build.js",
     "models": "python3 tools/export_models.py",
-    "test": "node tests/headless.test.js && node tests/multiplayer.test.js",
+    "test": "node tests/headless.test.js && node --test tests/leaderboard.test.js && node tests/multiplayer.test.js",
     "test:engine": "node tests/headless.test.js",
     "test:multiplayer": "node tests/multiplayer.test.js",
     "test:release": "node --test scripts/release-metadata.test.mjs",

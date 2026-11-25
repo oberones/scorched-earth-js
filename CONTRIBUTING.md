@@ -9,6 +9,21 @@ The delivery setup follows the conventions of the sibling `hyperprism-js` projec
 
 ## Validate
 
+Run `make` for the target list. The Makefile provides syntax and whitespace checks with Node, Python, and Bash. It uses the existing test suites and requires no npm packages. Use the Node version in `.nvmrc` for validation so the multiplayer tests have the built-in WebSocket client.
+
+| Target | What it runs |
+| --- | --- |
+| `make lint` | JavaScript, Python, and Bash syntax checks and source whitespace checks |
+| `make test-unit` | Engine, leaderboard, and release tests |
+| `make test-multiplayer` | Multiplayer protocol tests with a dedicated server |
+| `make validate-single` | Engine and leaderboard tests plus the offline browser flow |
+| `make validate-multiplayer` | Multiplayer protocol tests plus a two-browser online match |
+| `make validate` | Lint, all Node tests, and both browser suites |
+
+For manual validation, run `make serve-single` and open `http://127.0.0.1:8069/` to start a local battle. Run `make serve-multiplayer` and open `http://127.0.0.1:8070/` in two separate browser profiles to create and join an online battle. Both servers bind to loopback and run in the foreground. Stop either one with Ctrl+C.
+
+Override `SINGLE_PORT`, `MULTIPLAYER_PORT`, or `BIND` on the Make command line, for example `make serve-multiplayer MULTIPLAYER_PORT=8090`. To run the delivery checks against that server, use `make test-delivery MULTIPLAYER_PORT=8090` from a second terminal after the server starts. For a different base URL, set `DELIVERY_URL`. Browser targets accept `PYTHON=/path/to/venv/bin/python` for a virtual environment with Playwright installed.
+
 ```sh
 npm run test:release      # release-tag policy (node --test)
 npm run build             # src/ -> dist/index.html
@@ -38,7 +53,7 @@ Build `dist/` from the same source as the server you check.
 
 The image is multi-stage, using the digest-pinned `node:24.21.0-alpine` base for both stages.
 - **Build stage:** runs natively (`--platform=$BUILDPLATFORM`) and bundles `src/` into `dist/index.html`.
-- **Runtime stage:** contains only the server, the five engine files it shares with the browser, and `dist/`. All are root-owned and read-only to the runtime user `1000:1000`.
+- **Runtime stage:** contains the server, shared game and leaderboard code, and `dist/`. Application files are root-owned and read-only to the runtime user `1000:1000`.
 - **Process:** Node is PID 1 on port `8080` and handles SIGTERM itself. It warns players in every room, stops accepting connections and closes sockets with code 1001.
 - **Build context:** `.dockerignore` is an allowlist, so only the build inputs are sent.
 
@@ -106,8 +121,10 @@ docker compose --env-file deploy/.env -f deploy/compose.production.yml logs --ta
 
 For a private package, log in on the host with `docker login ghcr.io --username YOUR_GITHUB_USER --password-stdin` using a token with `read:packages`. Keep credentials out of `.env`, Compose and Git.
 
+Compose keeps the online leaderboard in the `leaderboard` named volume at `/var/lib/scorched`. Keep that volume when replacing containers. Outside Docker, the server stores records in `.data/leaderboard.json` by default. Set `LEADERBOARD_FILE` to choose a writable location.
+
 Compose applies these limits:
-- **Security:** read-only filesystem, all capabilities dropped, no-new-privileges.
+- **Security:** read-only root filesystem, all capabilities dropped, no-new-privileges.
 - **Resources:** a 16 MiB non-executable `/tmp`, 64 processes, 256 MiB memory with the V8 heap capped at 192 MiB, and one CPU.
 - **Health and logs:** a `/healthz` health check and rotating logs.
 - **Lifecycle:** a 30-second stop grace period, restart unless stopped, and loopback-only binding (default `127.0.0.1:8095`).

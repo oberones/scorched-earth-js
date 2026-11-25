@@ -211,8 +211,7 @@ class Game {
   }
 
   // ------------------------------------------------------------------ firing
-  // Classic rule: a damaged tank can't push as much powder.
-  maxPower(t) { return Math.max(150, Math.round(t.health * 10)); }
+  maxPower() { return CFG.MAX_POWER; }
 
   cycleWeapon(t, dir = 1) {
     const owned = WEAPON_ORDER.filter(w => (t.inventory[w] || 0) > 0);

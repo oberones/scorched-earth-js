@@ -4,6 +4,11 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+const LOCAL_LEADERBOARD_KEY = 'scorched.leaderboard.v1';
+let localLeaderboard = [];
+let onlineLeaderboard = false;
+let leaderboardRequest = null;
+
 const UI = {
   movementMode: false,
   setupPlayers: [
@@ -26,6 +31,73 @@ const UI = {
   },
 
   // ----------------------------------------------------------------- setup
+  initLeaderboard() {
+    for (const [type, online] of [['local', false], ['online', true]]) {
+      $(`#leaderboard-${type}`).onclick = () => {
+        onlineLeaderboard = online;
+        UI.refreshLeaderboard();
+      };
+    }
+    $('#leaderboard-retry').onclick = UI.refreshLeaderboard;
+    window.addEventListener('storage', event => {
+      if (event.key === LOCAL_LEADERBOARD_KEY && !onlineLeaderboard) UI.refreshLeaderboard();
+    });
+  },
+
+  readLocalLeaderboard() {
+    try {
+      const entries = JSON.parse(localStorage.getItem(LOCAL_LEADERBOARD_KEY));
+      return Array.isArray(entries) ? entries : [];
+    } catch {
+      return [];
+    }
+  },
+
+  recordLocalResult(game) {
+    const entries = Leaderboard.fromMatch(game);
+    if (!entries.length) return;
+    const best = Leaderboard.rank([...UI.readLocalLeaderboard(), ...localLeaderboard, ...entries]);
+    try {
+      localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(best));
+      localLeaderboard = [];
+    } catch {
+      localLeaderboard = best;
+    }
+  },
+
+  async refreshLeaderboard() {
+    $('#leaderboard-local').setAttribute('aria-pressed', !onlineLeaderboard);
+    $('#leaderboard-online').setAttribute('aria-pressed', onlineLeaderboard);
+    if (!onlineLeaderboard) {
+      const entries = Leaderboard.rank([...UI.readLocalLeaderboard(), ...localLeaderboard]);
+      UI.showLeaderboard(entries, localLeaderboard.length ? 'Browser storage is unavailable. Records last for this session.' : 'No local records yet.');
+      if (localLeaderboard.length) $('#leaderboard-status').hidden = false;
+      return;
+    }
+    UI.showLeaderboard([], 'Loading online records…');
+    if (leaderboardRequest) return;
+    leaderboardRequest = Net.fetchLeaderboard();
+    try {
+      const entries = await leaderboardRequest;
+      if (onlineLeaderboard) UI.showLeaderboard(entries, 'No online records yet.');
+    } catch (error) {
+      if (onlineLeaderboard) UI.showLeaderboard([], error.message, true);
+    } finally {
+      leaderboardRequest = null;
+    }
+  },
+
+  showLeaderboard(entries, message, retry = false) {
+    const status = $('#leaderboard-status');
+    status.textContent = message;
+    status.hidden = entries.length > 0;
+    $('#leaderboard-retry').hidden = !retry;
+    $('#leaderboard-table').hidden = !entries.length;
+    $('#leaderboard-table tbody').innerHTML = entries.map((entry, i) =>
+      `<tr class="${i === 0 ? 'first' : ''}"><td>${i + 1}</td><td>${esc(entry.name)}</td><td>${entry.score.toLocaleString()}</td><td>${entry.kills}</td><td>${entry.rounds}</td></tr>`
+    ).join('');
+  },
+
   renderSetup() {
     $('#app-version').textContent = `v${APP_VERSION}`;
     const list = $('#player-list');

@@ -18,7 +18,32 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(URL)
     pg.wait_for_timeout(2500)
+    assert pg.locator(".leaderboard").bounding_box()["x"] > pg.locator(".battle-setup").bounding_box()["x"]
     pg.screenshot(path=f"{SHOTS}/1_setup.png")
+
+    mobile = b.new_page(viewport={"width": 360, "height": 740}, is_mobile=True, has_touch=True)
+    mobile.on("pageerror", lambda e: errors.append(str(e)))
+    mobile.goto(URL)
+    assert mobile.locator(".leaderboard").bounding_box()["y"] > mobile.locator("#start").bounding_box()["y"]
+    assert mobile.evaluate("document.querySelector('.setup').scrollWidth === document.querySelector('.setup').clientWidth")
+    mobile.click("#leaderboard-online")
+    mobile.wait_for_selector("#leaderboard-retry")
+    mobile.select_option("#opt-rounds", "1")
+    mobile.locator("#player-list input").first.fill("Test Pilot")
+    mobile.click("#start")
+    mobile.click("#shop-done")
+    mobile.evaluate("""() => {
+        const game = window.__scorched.game;
+        for (const tank of game.tanks) {
+            if (tank.type === 'ai') game.kill(tank, game.tanks[0]);
+        }
+        game.endRound();
+    }""")
+    mobile.wait_for_selector("#screen-round:not([hidden])")
+    mobile.reload()
+    assert mobile.locator("#leaderboard-table tbody tr").count() == 1
+    assert mobile.locator("#leaderboard-table tbody tr").inner_text().split() == ["1", "Test", "Pilot", "450", "3", "1"]
+    mobile.close()
 
     pg.click("#start")
     pg.wait_for_timeout(300)

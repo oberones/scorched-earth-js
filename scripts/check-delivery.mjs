@@ -55,6 +55,23 @@ function upgrade(base, origin) {
   });
 }
 
+function readLeaderboard(base) {
+  const url = new URL('ws', base).href.replace(/^http/, 'ws');
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('No leaderboard response'));
+    }, 5000);
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'leaderboard' }));
+    ws.onmessage = ({ data }) => {
+      clearTimeout(timeout);
+      ws.close();
+      resolve(JSON.parse(data));
+    };
+  });
+}
+
 function play(base) {
   const url = new URL('ws', base).href.replace(/^http/, 'ws');
   return new Promise((resolve, reject) => {
@@ -128,7 +145,13 @@ for (const raw of bases) {
 
   assert.equal(await upgrade(base, 'https://evil.example'), 403, 'cross-site WebSocket must be refused');
   assert.equal(await upgrade(base, new URL(base).origin), 101, 'same-origin WebSocket must be accepted');
+  const leaderboard = await readLeaderboard(base);
+  assert.equal(leaderboard.t, 'leaderboard');
+  assert(Array.isArray(leaderboard.entries));
+  if (process.env.SCORCHED_EXPECT_VOLUME_PILOT) {
+    assert.deepEqual(leaderboard.entries, [{ name: 'Volume pilot', score: 250, kills: 1, rounds: 1 }]);
+  }
   const flow = await play(base);
 
-  console.log(JSON.stringify({ base, checks: ['bytes', 'security-headers', 'csp-hashes', 'cache', 'gzip', 'etag', 'head', '404', 'methods', 'healthz', 'ws-origin', 'ws-session'], session: flow.join(' > '), result: 'PASS' }));
+  console.log(JSON.stringify({ base, checks: ['bytes', 'security-headers', 'csp-hashes', 'cache', 'gzip', 'etag', 'head', '404', 'methods', 'healthz', 'ws-origin', 'leaderboard', 'ws-session'], session: flow.join(' > '), result: 'PASS' }));
 }

@@ -3,6 +3,9 @@
 // lobby -> bots/settings -> vote -> countdown -> shop -> rounds -> game over,
 // including a mid-game disconnect + reconnect and a spectator joining.
 const { spawn } = require('child_process');
+const { once } = require('events');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const assert = require('assert');
 const { CFG } = require('../server/lib/engine');
@@ -11,10 +14,41 @@ const PORT = 18000 + Math.floor(Math.random() * 1000);
 const URL = `ws://127.0.0.1:${PORT}/ws`;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
-  env: Object.assign({}, process.env, { PORT, LOG_LEVEL: 'quiet', COUNTDOWN_MS: 300, ROUND_PAUSE_MS: 300, SHOP_MS: 4000 }),
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'scorched-multiplayer-'));
+const startServer = () => spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
+  env: Object.assign({}, process.env, {
+    PORT, LOG_LEVEL: 'quiet', COUNTDOWN_MS: 300, ROUND_PAUSE_MS: 300, SHOP_MS: 4000,
+    LEADERBOARD_FILE: path.join(directory, 'leaderboard.json'),
+  }),
   stdio: ['ignore', 'inherit', 'inherit'],
 });
+let srv = startServer();
+process.on('exit', () => {
+  srv.kill();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+async function waitForServer() {
+  for (let i = 0; i < 50; i++) {
+    try { if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return; } catch { /* starting */ }
+    await sleep(100);
+  }
+  throw new Error('Server did not start');
+}
+
+function readLeaderboard() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(URL);
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'leaderboard' }));
+    ws.onerror = ws.onclose = () => reject(new Error('Leaderboard socket closed without standings'));
+    ws.onmessage = ({ data }) => {
+      const message = JSON.parse(data);
+      if (message.t === 'leaderboard') resolve(message.entries);
+      else reject(new Error('Unexpected leaderboard response'));
+      ws.close();
+    };
+  });
+}
 
 class TestClient {
   constructor(name) {
@@ -53,7 +87,7 @@ class TestClient {
             const a = f && f.x > me.x ? 50 : 130;
             const d = f ? Math.abs(f.x - me.x) : 300;
             this.send({ t: 'aim', a: a - 5, p: 300 });
-            this.send({ t: 'fire', a, p: Math.min(me.h * 10, 260 + d * 0.62), w: 'baby' });
+            this.send({ t: 'fire', a, p: Math.min(CFG.MAX_POWER, 260 + d * 0.62), w: 'baby' });
           }
         }
         this.waiters = this.waiters.filter(w => { if (w.pred(m)) { w.res(m); return false; } return true; });
@@ -80,7 +114,8 @@ class TestClient {
 (async () => {
   let ok = 0;
   const pass = (s) => { ok++; console.log('  ok -', s); };
-  for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${PORT}/healthz`); break; } catch { await sleep(100); } }
+  await waitForServer();
+  assert.deepEqual(await readLeaderboard(), []);
 
   const page = await fetch(`http://127.0.0.1:${PORT}/`);
   assert.strictEqual(page.status, 200);
@@ -187,6 +222,20 @@ class TestClient {
   A.send({ t: 'leaveRoom' });
   await B2.next('room', 3000, m => m.hostId === B2.id);
   pass('host hand-over when the host leaves');
+
+  const entries = await readLeaderboard();
+  assert.deepEqual(entries.map(entry => entry.name).sort(), ['Alice', 'Bob']);
+  for (const entry of entries) {
+    const tank = A.snap.tanks[entry.name === 'Alice' ? A.tank : B2.tank];
+    assert.deepEqual(entry, { name: entry.name, score: tank.score, kills: tank.kills, rounds: 2 });
+  }
+  const stopped = once(srv, 'exit');
+  srv.kill();
+  await stopped;
+  srv = startServer();
+  await waitForServer();
+  assert.deepEqual(await readLeaderboard(), entries);
+  pass('authoritative records exclude bots and spectators and survive a server restart');
 
   console.log(`\n${ok} multiplayer tests passed`);
   srv.kill();

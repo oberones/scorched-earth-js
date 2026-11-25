@@ -19,6 +19,7 @@
     $('#hud').hidden = true; $('#scoreboard').hidden = true; $('#chatfeed').hidden = true; $('#chatbox').hidden = true;
     UI.renderSetup();
     UI.show('screen-setup');
+    UI.refreshLeaderboard();
   }
 
   function startGame(settings) {
@@ -215,7 +216,10 @@
         }
       }
       renderer.consume(demo ? evs.filter(e => e.type !== 'turn') : evs);
-      if (game.phase === 'roundOver' && lastPhase !== 'roundOver') roundTimer = demo ? 0 : 1.6;
+      if (game.phase === 'roundOver' && lastPhase !== 'roundOver') {
+        roundTimer = demo ? 0 : 1.6;
+        if (!demo && !game.isNet && game.round === game.settings.rounds) UI.recordLocalResult(game);
+      }
       if (game.phase === 'roundOver' && roundTimer !== null && !game.isNet) {
         roundTimer -= dt;
         if (roundTimer <= 0) { roundTimer = null; onRoundOver(); }
@@ -238,6 +242,7 @@
     stopGame() { startDemo(); },
     startDemo,
   };
+  UI.initLeaderboard();
   Net.init();
   startDemo();
   requestAnimationFrame(frame);

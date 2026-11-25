@@ -10,6 +10,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"]
+    volumes: ["leaderboard:/var/lib/scorched"]
     pids_limit: 64
     mem_limit: 256m
     cpus: 1.0
@@ -32,6 +33,8 @@ services:
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
+volumes:
+  leaderboard:
 networks:
   web-backend:
     name: ${SCORCHED_NETWORK:-web-backend}

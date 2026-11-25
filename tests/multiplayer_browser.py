@@ -1,12 +1,14 @@
 """Two real browsers play an online game against each other through the server.
 python3 tests/multiplayer_browser.py   (needs Playwright + Chromium)"""
-import os, subprocess, sys, time, random
+import os, subprocess, sys, time, random, tempfile
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHOTS = os.path.join(ROOT, "tests", "shots"); os.makedirs(SHOTS, exist_ok=True)
 PORT = 19000 + random.randint(0, 900)
-env = dict(os.environ, PORT=str(PORT), LOG_LEVEL="quiet", COUNTDOWN_MS="1500", ROUND_PAUSE_MS="4000")
+data = tempfile.TemporaryDirectory(prefix="scorched-multiplayer-browser-")
+env = dict(os.environ, PORT=str(PORT), LOG_LEVEL="quiet", COUNTDOWN_MS="1500", ROUND_PAUSE_MS="4000",
+           LEADERBOARD_FILE=os.path.join(data.name, "leaderboard.json"))
 srv = subprocess.Popen(["node", os.path.join(ROOT, "server", "server.js")], env=env)
 time.sleep(0.8)
 URL = f"http://127.0.0.1:{PORT}/"
@@ -102,6 +104,13 @@ try:
         sb = B.evaluate("window.__scorched.Net.game.tanks.map(t => t.score)")
         print("scores A:", sa, "B:", sb)
         assert sa == sb, "clients disagree on scores"
+        reader = b.new_page()
+        reader.goto(URL)
+        reader.click("#leaderboard-online")
+        reader.wait_for_selector("#leaderboard-table tbody tr")
+        assert sorted(reader.locator("#leaderboard-table tbody td:nth-child(2)").all_text_contents()) == ["Alice", "Bob"]
+        assert reader.locator("#screen-setup").is_visible()
+        reader.close()
         A.click("#over-again")
         A.wait_for_selector("#screen-room:not([hidden])")
         assert A.inner_text("#vote-btn").lower() == "vote to start"
@@ -109,5 +118,7 @@ try:
         b.close()
 finally:
     srv.terminate()
+    srv.wait(timeout=10)
+    data.cleanup()
 print("console errors:", errors or "none")
 sys.exit(1 if errors else 0)

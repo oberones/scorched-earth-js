@@ -55,6 +55,8 @@ npm start
 
 Open [http://localhost:8080](http://localhost:8080), choose **Start local battle**, and configure 2–6 human or AI combatants. For an offline game, you can also open the generated `dist/index.html` directly after building.
 
+The main screen shows the ten best human callsigns by final match score, with kills breaking ties. Local records are saved in your browser. The Online tab shows records shared by players on the selected game server.
+
 ### Controls
 
 | Action | Keyboard | Mouse / touch |
@@ -69,7 +71,7 @@ Open [http://localhost:8080](http://localhost:8080), choose **Start local battle
 | Pause / help | `Esc` | Pause button |
 | Chat online | `T` | Chat field |
 
-Wind affects every shell. Damage also limits a tank's maximum firing power, so a wounded commander may need to move closer or rethink the shot.
+Wind affects every shell. Tanks can use the full 0–1000 firing power range at any health.
 
 ## Take the battle online
 

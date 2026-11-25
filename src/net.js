@@ -35,7 +35,7 @@ class NetGame {
     return !!t && t.id === this.myTankId && t === this.current && this.stage === 'play' &&
       this.phase === 'aim' && t.type === 'human' && this.firedKey !== this.turnKey;
   }
-  maxPower(t) { return Math.max(150, Math.round(t.health * 10)); }
+  maxPower() { return CFG.MAX_POWER; }
   standings() { return this.tanks.slice().sort((a, b) => b.score - a.score || b.kills - a.kills); }
 
   // ---------------------------------------------------------------- inputs
@@ -100,7 +100,6 @@ class NetGame {
       if (!keepAim) { t.power = st.p; t.weapon = st.w; t._a1 = st.a; }
       else {
         if (!(t.inventory[t.weapon] > 0)) t.weapon = st.w;       // ran out of that weapon
-        t.power = Math.min(t.power, this.maxPower(t));          // damaged tanks lose power
         if (t._a1 == null) t._a1 = st.a;
       }
       t._x1 = st.x; t._y1 = st.y;
@@ -188,6 +187,10 @@ const Net = (() => {
   };
   const served = /^https?:$/.test(location.protocol);
 
+  function preferredServer() {
+    return new URLSearchParams(location.search).get('server') || (served ? '' : store.get('scorched.server', ''));
+  }
+
   function serverUrl() {
     const custom = $('#net-server').value.trim();
     if (custom) return custom;
@@ -198,6 +201,35 @@ const Net = (() => {
       return u.href;
     }
     return '';
+  }
+
+  function fetchLeaderboard() {
+    const url = serverUrl();
+    if (!url) return Promise.reject(new Error('Choose a game server in Play online.'));
+    return new Promise((resolve, reject) => {
+      let socket;
+      try { socket = new WebSocket(url); } catch {
+        reject(new Error('Invalid game server address.'));
+        return;
+      }
+      const finish = (error, entries) => {
+        clearTimeout(timeout);
+        socket.onmessage = socket.onerror = socket.onclose = null;
+        if (socket.readyState < WebSocket.CLOSING) socket.close();
+        if (error) reject(new Error(error));
+        else resolve(entries);
+      };
+      const unavailable = () => finish('Online leaderboard unavailable.');
+      const timeout = setTimeout(unavailable, 4000);
+      socket.onopen = () => socket.send(JSON.stringify({ t: 'leaderboard' }));
+      socket.onerror = socket.onclose = unavailable;
+      socket.onmessage = ({ data }) => {
+        let message;
+        try { message = JSON.parse(data); } catch { return unavailable(); }
+        if (message?.t !== 'leaderboard' || !Array.isArray(message.entries)) return unavailable();
+        finish(null, Leaderboard.rank(message.entries));
+      };
+    });
   }
 
   function status(text, kind = '') {
@@ -266,7 +298,7 @@ const Net = (() => {
     UI.show('screen-online');
     $('#net-name').value = store.get('scorched.name', '');
     $('#net-server-wrap').hidden = served && !new URLSearchParams(location.search).get('server');
-    if (!$('#net-server').value) $('#net-server').value = new URLSearchParams(location.search).get('server') || (served ? '' : store.get('scorched.server', ''));
+    if (!$('#net-server').value) $('#net-server').value = preferredServer();
     renderRooms();
     connect();
   }
@@ -439,6 +471,7 @@ const Net = (() => {
   // --------------------------------------------------------------- wiring
   let pendingJoin = null;
   function init() {
+    $('#net-server').value = preferredServer();
     $('#btn-online').onclick = () => { Sfx.init(); open(); };
     $('#net-back').onclick = () => { disconnect(); room = null; App.startDemo(); };
     $('#net-name').addEventListener('change', () => {
@@ -507,5 +540,5 @@ const Net = (() => {
     if (mm) { pendingJoin = mm[1].toUpperCase(); history.replaceState(null, '', location.pathname + location.search); setTimeout(open, 50); }
   }
 
-  return { init, open, send, openChatInput, leaveRoom, get room() { return room; }, get game() { return game; } };
+  return { init, open, send, openChatInput, leaveRoom, fetchLeaderboard, get room() { return room; }, get game() { return game; } };
 })();

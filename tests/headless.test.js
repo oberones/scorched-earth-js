@@ -6,8 +6,8 @@ const vm = require('vm');
 const assert = require('assert');
 
 const SRC = path.join(__dirname, '..', 'src');
-const ctx = vm.createContext({ console, Math, Date, Float32Array, Infinity });
-for (const f of ['config.js', 'terrain.js', 'physics.js', 'ai.js', 'game.js']) {
+const ctx = vm.createContext({ console, Math, Date, Float32Array, Infinity, location: { protocol: 'http:' } });
+for (const f of ['config.js', 'terrain.js', 'physics.js', 'ai.js', 'game.js', 'net.js']) {
   vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f });
 }
 const run = code => vm.runInContext(code, ctx);
@@ -152,6 +152,42 @@ test('a steep descent settles, applies fall rules, and resumes the same turn', (
   `);
   assert.strictEqual(run('ft.health'), 100);
   assert.strictEqual(run('ft.items.parachute'), 0);
+});
+
+test('a nearly destroyed tank fires at full power', () => {
+  const shot = run(`(() => {
+    const game = new Game({ seed: 42, players: [
+      { name: 'A', type: 'human', color: '#f00' },
+      { name: 'B', type: 'human', color: '#00f' },
+    ] });
+    game.startRound();
+    const tank = game.current;
+    tank.power = 1000;
+    game.applyDamage(tank, 99, null);
+    game.fire();
+    const projectile = game.projectiles[0];
+    return { health: tank.health, power: tank.lastShot.power, speed: Math.hypot(projectile.vx, projectile.vy) };
+  })()`);
+  assert.strictEqual(shot.health, 1);
+  assert.strictEqual(shot.power, 1000);
+  assert(Math.abs(shot.speed - run('CFG.MAX_SPEED')) < 1e-9);
+});
+
+test('online damage snapshots preserve the local player’s selected power', () => {
+  const online = run(`(() => {
+    const game = new NetGame({ yourTank: 0, tanks: [{ id: 0, type: 'human' }] }, {});
+    const snapshot = { round: 1, stage: 'play', phase: 'aim', turn: 0, turnCount: 1,
+      tanks: [{ id: 0, type: 'human', h: 100, p: 500, w: 'baby', inv: { baby: -1 } }],
+      blasts: [], proj: [], ev: [] };
+    game.activate(snapshot);
+    game.me.power = 950;
+    snapshot.tanks[0].h = 1;
+    game.activate(snapshot);
+    return { health: game.me.health, power: game.me.power, maxPower: game.maxPower(game.me) };
+  })()`);
+  assert.strictEqual(online.health, 1);
+  assert.strictEqual(online.power, 950);
+  assert.strictEqual(online.maxPower, 1000);
 });
 
 test('AI simulation matches live flight exactly', () => {
