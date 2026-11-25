@@ -1,3 +1,9 @@
+## v0.4.0 (2026-11-25)
+
+### Feat
+
+- add leaderboard and remove dynamic power
+
 ## v0.3.0 (2026-11-19)
 
 ### Feat
