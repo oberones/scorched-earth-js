@@ -112,7 +112,7 @@ A few field lessons:
 
 - Watch the wind indicator before copying the previous shot.
 - Terrain is both cover and a weapon—remove the ground beneath a tank or build a mound in front of it.
-- Damaged tanks lose maximum power. Repairing, moving, or switching targets may be better than forcing the same trajectory.
+- Repairing, moving, or switching targets may be better than forcing the same trajectory.
 - Rubber walls enable bank shots; wrap-around walls let a shell leave one side of the battlefield and return from the other.
 - Death explosions can set off chain reactions. Sometimes the safest target is not the closest one.
 
