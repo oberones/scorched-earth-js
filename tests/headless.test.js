@@ -7,7 +7,7 @@ const assert = require('assert');
 
 const SRC = path.join(__dirname, '..', 'src');
 const ctx = vm.createContext({ console, Math, Date, Float32Array, Infinity, location: { protocol: 'http:' } });
-for (const f of ['config.js', 'terrain.js', 'physics.js', 'ai.js', 'game.js', 'net.js']) {
+for (const f of ['config.js', 'terrain.js', 'physics.js', 'campaign.js', 'arsenal.js', 'ai.js', 'game.js', 'net.js']) {
   vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f });
 }
 const run = code => vm.runInContext(code, ctx);
@@ -329,18 +329,18 @@ test('each AI picks a random opponent and pursues it until it is destroyed', () 
 });
 
 test('shop: buy and sell update money and inventory', () => {
-  run(`var G = new Game({ seed: 5, players: [{ name: 'H', type: 'human', color: '#fff' }, { name: 'A', type: 'ai', color: '#000' }] });
+  run(`var G = new Game({ seed: 5, startingCash: 30000, players: [{ name: 'H', type: 'human', color: '#fff' }, { name: 'A', type: 'ai', color: '#000' }] });
        var t = G.tanks[0]; var m0 = t.money; var ok = G.buy(t, 'missile');`);
   assert(run('ok'));
   assert.strictEqual(run('t.inventory.missile'), 5);
-  assert.strictEqual(run('m0 - t.money'), 600);
+  assert.strictEqual(run('m0 - t.money'), 1875);
   run('G.sell(t, "missile")');
   assert.strictEqual(run('t.inventory.missile'), 0);
   run(`var fuelMoney = t.money; G.buy(t, 'fuel');`);
-  assert.strictEqual(run('t.items.fuel'), 50);
-  assert.strictEqual(run('fuelMoney - t.money'), 500);
-  run(`G.startRound(); var fuelAfterRoundStart = t.items.fuel; G.sell(t, 'fuel');`);
-  assert.strictEqual(run('fuelAfterRoundStart'), 50);
+  assert.strictEqual(run('t.items.fuel'), 100);
+  assert.strictEqual(run('fuelMoney - t.money'), 10000);
+  run(`G.startRound(); var fuelAfterRoundStart = t.items.fuel; G.endRound(); G.continueAfterRound(); G.sell(t, 'fuel');`);
+  assert.strictEqual(run('fuelAfterRoundStart'), 100);
   assert.strictEqual(run('t.items.fuel'), 0);
 });
 
@@ -349,7 +349,7 @@ test('AI buys fuel and moves away from a nearby enemy before aiming', () => {
     var AM = new Game({ seed: 8, players: [
       { name: 'Bot', type: 'ai', difficulty: 'expert', color: '#f00' },
       { name: 'Enemy', type: 'human', color: '#00f' }] });
-    var bot = AM.tanks[0], enemy = AM.tanks[1]; bot.money = 10000; AI.shop(bot, AM.rng); var fuelBought = bot.items.fuel;
+    var bot = AM.tanks[0], enemy = AM.tanks[1]; bot.money = 10000; AI.shop(bot, AM); var fuelBought = bot.items.fuel;
     AM.terrain.ground.fill(300); AM.phase = 'aim'; AM.turn = 0;
     bot.x = 300; bot.y = AM.restY(bot); enemy.x = 400; enemy.y = AM.restY(enemy);
     var movePlan = AI.planMove(AM, bot), startX = bot.x;

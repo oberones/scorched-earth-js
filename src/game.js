@@ -5,9 +5,12 @@
 // ---------------------------------------------------------------------------
 class Game {
   constructor(settings) {
-    this.settings = Object.assign({ rounds: 5, walls: 'open', terrain: 'random', windMode: 'changing', seed: Date.now() }, settings);
+    this.settings = { ...settings, ...matchRules(settings), seed: settings.seed ?? Date.now() };
     this.rng = new RNG(this.settings.seed);
     this.terrain = new Terrain(CFG.W, CFG.H);
+    this.terrain.rules = this.settings;
+    this.marketPrices = {}; this.demand = {}; this.shopper = 0;
+    this.marks = []; this.markVersion = 0;
     this.round = 0;
     this.events = [];
     this.projectiles = [];
@@ -18,7 +21,10 @@ class Game {
     this.phase = 'shop';
     this.tanks = this.settings.players.map((p, i) => ({
       id: i, name: p.name, color: p.color, type: p.type, difficulty: p.difficulty || 'medium',
-      score: 0, money: CFG.START_MONEY, kills: 0, wins: 0,
+      team: Number.isInteger(p.team) ? p.team : i % 2,
+      persona: p.difficulty === 'unknown' ? this.rng.pick(PERSONAS) : PERSONAS.includes(p.difficulty) ? p.difficulty : null,
+      parachuteOn: true, threshold: 5, defense: null, energy: 1, targetId: null,
+      score: 0, money: this.settings.startingCash, kills: 0, wins: 0,
       inventory: { baby: Infinity }, items: {},
       x: 0, y: 0, vy: 0, health: CFG.MAX_HEALTH, shield: 0, alive: true,
       angle: 60, power: 500, weapon: 'baby', falling: false, fallStart: 0, chute: false,
@@ -27,7 +33,26 @@ class Game {
   }
 
   // Can the local player steer this tank right now? (NetGame overrides this.)
-  canControl(t) { return !!t && t.type === 'human' && this.phase === 'aim' && t === this.current; }
+  eligible(t) {
+    return !!t && t.alive && !t.falling && this.phase === 'aim' && !t.committed &&
+      (this.settings.format !== 'sequential' || t === this.current);
+  }
+  canControl(t) { return t?.type === 'human' && this.eligible(t); }
+  allied(a, b) { return this.settings.teams !== 'none' && !this.betrayal && a.team === b.team; }
+  outstanding(t) { return this.projectiles.some(p => p.owner === t) || this.pending.some(d => d.owner === t); }
+  equip(t, id, value) { return Arsenal.equip(this, t, id, value); }
+  mark(points, color, life) {
+    this.marks.push({ points: points.slice(), color, life });
+    this.markVersion++;
+  }
+  talk(t, dying) {
+    const mode = this.settings.taunts;
+    if (mode === 'off' || (mode === 'computers' && t.type !== 'ai') || this.rng.int(1, 100) > this.settings.talkChance) return;
+    const lines = dying ? ['That was my good tread.', 'Keep the change.', 'I liked that hill.']
+      : ['Mind the paintwork.', 'I measured this one.', 'A little more elevation…'];
+    this.emit('talk', { tank: t, text: this.rng.pick(lines) });
+  }
+
 
   emit(type, data = {}) { this.events.push(Object.assign({ type }, data)); }
   get current() { return this.tanks[this.turn]; }
@@ -35,7 +60,12 @@ class Game {
 
   // ------------------------------------------------------------------ rounds
   startRound() {
+    Campaign.closeShop(this);
     this.round++;
+    this.betrayal = false; this.lastTeam = null; this.marks = []; this.markVersion++;
+    this.hazardClock = 0; this.settleTime = 0;
+    this.environment = this.settings.environment === 'random' ? this.rng.pick(['clear', 'lightning', 'meteors']) : this.settings.environment;
+    this.wall = this.resolveWall();
     const rng = this.rng;
     let style = this.settings.terrain;
     if (style === 'random') {
@@ -52,7 +82,10 @@ class Game {
 
     // spread tanks across the map in random order
     const n = this.tanks.length;
-    const order = this.tanks.map((t, i) => i).sort(() => rng.next() - 0.5);
+    const order = this.tanks.map(t => t.id);
+    for (let i = n - 1; i > 0; i--) {
+      const j = rng.int(0, i); [order[i], order[j]] = [order[j], order[i]];
+    }
     const margin = Math.round(CFG.W * 0.055), span = (CFG.W - margin * 2) / n;
     order.forEach((ti, slot) => {
       const t = this.tanks[ti];
@@ -62,12 +95,18 @@ class Game {
     for (const t of this.tanks) {
       Object.assign(t, { health: CFG.MAX_HEALTH, shield: 0, alive: true, vy: 0, falling: false, chute: false,
         weapon: 'baby', roundPoints: 0, roundDamage: 0, ai: { target: null, focus: 1 }, lastShot: null });
-      t.y = this.restY(t);
+      t.y = this.restY({ x: t.x });
       t.angle = t.x < CFG.W / 2 ? 55 : 125;
       t.power = 500;
-      if ((t.items.shield || 0) > 0) { t.items.shield--; t.shield = 80; }
+      t.energy = 1; t.targetId = null; t.impactX = null;
+      t.committed = false; t.shieldType = null; t.contact = false; t.guidance = null;
+      t.aiMove = null; t.aiPlan = null; t.aiTimer = 0; t.lastAttacker = null;
+      if (t.items.autodefense && ITEMS[t.defense]?.strength && t.items[t.defense] > 0) {
+        t.shieldType = t.defense; t.shield = ITEMS[t.defense].strength; t.items[t.defense]--;
+      }
     }
-    this.turn = this.rng.int(0, n - 1);
+    this.turnOrder = this.makeOrder(true);
+    this.turn = this.settings.format === 'simultaneous' ? (this.tanks.find(t => t.type === 'human')?.id ?? this.turnOrder[0]) : this.turnOrder[0];
     this.phase = 'aim';
     this.emit('roundStart', { round: this.round });
     this.beginTurn();
@@ -76,7 +115,7 @@ class Game {
   restY(t) {
     // rest on the highest point under the treads
     const h = this.terrain;
-    return Math.min(h.heightAt(t.x - 9), h.heightAt(t.x), h.heightAt(t.x + 9));
+    return Math.min(h.support(t.x - 9, t.y), h.support(t.x, t.y), h.support(t.x + 9, t.y));
   }
 
   beginTurn() {
@@ -88,27 +127,56 @@ class Game {
     this.emit('turn', { tank: t });
   }
 
+  resolveWall() {
+    return ['random', 'erratic'].includes(this.settings.walls)
+      ? this.rng.pick(['open', 'concrete', 'padded', 'bounce', 'spring', 'wrap']) : this.settings.walls;
+  }
+
+  makeOrder(opening = false) {
+    const ids = this.alive().map(t => t.id), order = this.settings.order;
+    if (order === 'random' || order === 'round-robin') {
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = this.rng.int(0, i); [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      if (opening && order === 'round-robin') {
+        const first = (this.round - 1) % this.tanks.length, index = ids.indexOf(first);
+        [ids[0], ids[index]] = [ids[index], ids[0]];
+      }
+    } else {
+      const rank = this.standings().map(t => t.id);
+      ids.sort((a, b) => (rank.indexOf(a) - rank.indexOf(b)) * (order === 'winners-first' ? 1 : -1));
+    }
+    return ids;
+  }
+
   nextTurn() {
     this.turnCount++;
-    if (this.settings.windMode === 'changing') {
+    if (this.settings.windMode === 'changing')
       this.wind = Math.max(-CFG.MAX_WIND, Math.min(CFG.MAX_WIND, this.wind + this.rng.int(-2, 2)));
-    }
-    const n = this.tanks.length;
-    for (let k = 1; k <= n; k++) {
-      const i = (this.turn + k) % n;
-      if (this.tanks[i].alive) { this.turn = i; break; }
-    }
+    const previousOrder = this.turnOrder || this.tanks.map(t => t.id);
+    this.turnOrder = previousOrder.slice(previousOrder.indexOf(this.turn) + 1).filter(id => this.tanks[id].alive);
+    if (!this.turnOrder.length || this.settings.format === 'volley') this.turnOrder = this.makeOrder();
+    this.turn = this.turnOrder[0];
+    for (const t of this.tanks) t.committed = false;
     this.phase = 'aim';
     this.beginTurn();
   }
 
   endRound() {
     const alive = this.alive();
+    const teamWin = this.settings.teams !== 'none' && !this.betrayal && alive.length && alive.every(t => t.team === alive[0].team);
+    this.lastTeam = teamWin ? alive[0].team : null;
     const winner = alive.length === 1 ? alive[0] : null;
-    if (winner) { winner.wins++; this.award(winner, 150); }
+    for (const t of teamWin ? alive : winner ? [winner] : []) { t.wins++; this.award(t, 150); }
+    const credited = new Set();
     for (const t of this.tanks) {
-      t.money += CFG.ROUND_BASE_INCOME + Math.max(0, t.roundPoints) * CFG.MONEY_PER_POINT;
+      const account = this.settings.teams === 'corporate' ? t.team : t.id;
+      if (!credited.has(account)) {
+        Campaign.cash(this, t, Math.floor(t.money * this.settings.interest / 100));
+        credited.add(account);
+      }
     }
+    for (const t of this.tanks) Campaign.cash(this, t, CFG.ROUND_BASE_INCOME + Math.max(0, t.roundPoints) * CFG.MONEY_PER_POINT);
     this.lastWinner = winner;
     this.phase = 'roundOver';
     this.emit('roundOver', { winner });
@@ -121,37 +189,29 @@ class Game {
       this.emit('gameOver', { standings: this.standings() });
     } else {
       this.phase = 'shop';
-      for (const t of this.tanks) if (t.type === 'ai') AI.shop(t, this.rng);
+      this.shopBots();
     }
   }
 
-  standings() { return this.tanks.slice().sort((a, b) => b.score - a.score || b.kills - a.kills); }
+  shopBots() {
+    if (this.settings.computersBuy === 'on') for (const t of this.tanks) if (t.type === 'ai') AI.shop(t, this);
+  }
+
+  standings() {
+    return this.tanks.slice().sort((a, b) => (this.settings.scoring === 'greedy' ? Campaign.worth(this, b) - Campaign.worth(this, a) : 0)
+      || b.score - a.score || b.kills - a.kills);
+  }
 
   award(t, pts) { t.score += pts; t.roundPoints += pts; }
-
-  // ---------------------------------------------------------------- shopping
-  buy(t, id) {
-    const def = WEAPONS[id] || ITEMS[id];
-    if (!def || def.infinite || t.money < def.price) return false;
-    t.money -= def.price;
-    if (WEAPONS[id]) t.inventory[id] = (t.inventory[id] || 0) + def.bundle;
-    else t.items[id] = (t.items[id] || 0) + def.bundle;
-    return true;
-  }
-  sell(t, id) {
-    const def = WEAPONS[id] || ITEMS[id];
-    const bag = WEAPONS[id] ? t.inventory : t.items;
-    if (!def || def.infinite || (bag[id] || 0) < def.bundle) return false;
-    bag[id] -= def.bundle;
-    t.money += Math.floor(def.price * 0.8);
-    return true;
-  }
+  buy(t, id) { return Campaign.trade(this, t, id, true); }
+  sell(t, id) { return Campaign.trade(this, t, id, false); }
 
   useRepair(t) {
-    if (this.phase !== 'aim' || t !== this.current || !(t.items.repair > 0) || t.health >= CFG.MAX_HEALTH) return false;
-    t.items.repair--;
-    t.health = Math.min(CFG.MAX_HEALTH, t.health + 50);
-    this.emit('repair', { tank: t });
+    if (!this.eligible(t) || !(t.items.battery > 0) || t.health >= CFG.MAX_HEALTH) return false;
+    t.items.battery--;
+    const restored = Math.min(10, CFG.MAX_HEALTH - t.health);
+    t.health += restored;
+    this.emit('repair', { tank: t, restored });
     return true;
   }
 
@@ -160,14 +220,15 @@ class Game {
   movementStep(t, direction) {
     const dir = Math.sign(direction);
     if (!t || !t.alive || (dir !== -1 && dir !== 1)) return { moved: false, reason: 'invalid' };
+    if (this.terrain.isSolid(t.x, t.y - CFG.TURRET_H)) return { moved: false, reason: 'buried' };
     const x = t.x + dir;
     if (x < CFG.TANK_RADIUS || x > this.terrain.w - CFG.TANK_RADIUS) return { moved: false, reason: 'bounds' };
 
     const oldY = this.restY(t);
-    const probe = { x };
+    const probe = { x, y: t.y };
     const y = this.restY(probe);
     const rise = Math.max(0, oldY - y);
-    const slope = Math.abs(this.terrain.slopeAt(x, 9));
+    const slope = Math.abs(this.terrain.slopeAt(x, 9, t.y));
     if (rise > 0.01 && slope > CFG.MAX_CLIMB) return { moved: false, reason: 'slope' };
 
     const cy = y - 9;
@@ -182,7 +243,7 @@ class Game {
   }
 
   moveTank(t, direction) {
-    if (this.phase !== 'aim' || t !== this.current) return { moved: false, reason: 'turn' };
+    if (!this.eligible(t) || this.settings.format === 'simultaneous') return { moved: false, reason: 'turn' };
     const step = this.movementStep(t, direction);
     if (!step.moved) return step;
     t.items.fuel = Math.max(0, (t.items.fuel || 0) - step.cost);
@@ -219,17 +280,39 @@ class Game {
     t.weapon = owned[(i + dir + owned.length) % owned.length];
   }
 
-  fire() {
-    if (this.phase !== 'aim') return false;
-    const t = this.current;
+  fire(t = this.current) {
+    if (!this.eligible(t) || (this.settings.format === 'simultaneous' && (this.outstanding(t) || this.battleDone()))) return false;
+    t.serial = (t.serial || 0) + 1;
+    if (this.settings.format === 'volley') {
+      t.committed = true;
+      const waiting = this.alive().filter(other => !other.committed);
+      if (waiting.length) {
+        this.turn = waiting[0].id;
+        this.beginTurn();
+        return true;
+      }
+      this.phase = 'flight';
+      for (const shooter of this.alive()) this.launch(shooter);
+    } else {
+      if (this.settings.format === 'sequential') this.phase = 'flight';
+      else this.turnCount++;
+      this.launch(t);
+    }
+    return true;
+  }
+
+  launch(t) {
     if (!(t.inventory[t.weapon] > 0)) t.weapon = 'baby';
     if (t.inventory[t.weapon] !== Infinity) t.inventory[t.weapon]--;
     t.power = Math.min(t.power, this.maxPower(t));
     const p = Physics.makeProjectile(t, t.angle, t.power, t.weapon);
     p.id = this.nextProjId++;
-    this.projectiles.push(p);
+    if (this.settings.walls === 'erratic') this.wall = this.resolveWall();
+    p.wall = this.wall;
+    if (Arsenal.prepare(this, t, p)) this.projectiles.push(p);
+    t.aiPlan = null; t.aiMove = null; t.aiTimer = 0;
+    this.talk(t, false);
     t.lastShot = { angle: t.angle, power: t.power };
-    this.phase = 'flight';
     this.resumeAfterSettle = false;
     this.flightTime = 0;
     this.emit('fire', { tank: t, weapon: t.weapon, x: p.x, y: p.y, angle: t.angle });
@@ -237,24 +320,24 @@ class Game {
   }
 
   // -------------------------------------------------------------- explosions
-  detonate(x, y, weaponId, owner, scale = 1) {
+  detonate(x, y, weaponId, owner, scale = 1, suspended = false, color = null) {
     const W = WEAPONS[weaponId] || WEAPONS.baby;
     const r = W.radius * scale;
     if (W.dirt) {
-      this.terrain.addDirt(x, y, r);
+      this.terrain.addDirt(x, y, r, suspended);
       this.blasts.push({ x, y, r, t: 0, dur: 0.6, dirt: true, color: W.color });
       this.emit('dirt', { x, y, r });
       return;
     }
-    this.terrain.crater(x, y, r);
-    this.blasts.push({ x, y, r, t: 0, dur: W.nuke ? 1.6 : 0.8, nuke: !!W.nuke, color: W.color, digger: !!W.digger });
+    this.terrain.crater(x, y, r, suspended);
+    this.blasts.push({ x, y, r, t: 0, dur: W.nuke ? 1.6 : 0.8, nuke: !!W.nuke, color: color || W.color, digger: !!W.digger });
     this.emit('explode', { x, y, r, nuke: !!W.nuke, weapon: weaponId });
     if (W.damage > 0) this.damageArea(x, y, r, W.damage * scale, owner);
   }
 
-  damageArea(x, y, r, maxDmg, owner) {
+  damageArea(x, y, r, maxDmg, owner, spareOwner = false) {
     for (const t of this.tanks) {
-      if (!t.alive) continue;
+      if (!t.alive || (spareOwner && t === owner)) continue;
       const c = Physics.tankCenter(t);
       const d = Math.max(0, Math.hypot(c.x - x, c.y - y) - 8);
       if (d >= r) continue;
@@ -265,11 +348,14 @@ class Game {
 
   applyDamage(t, dmg, owner) {
     let absorbed = 0;
-    if (t.shield > 0) { absorbed = Math.min(t.shield, dmg); t.shield -= absorbed; dmg -= absorbed; }
+    if (t.shield > 0 && owner !== t) { absorbed = Math.min(t.shield, dmg); t.shield -= absorbed; dmg -= absorbed; }
     const real = Math.min(t.health, dmg);
     t.health -= real;
-    if (owner && owner !== t) { this.award(owner, real); owner.roundDamage += real; }
-    else if (owner === t) this.award(t, -Math.round(real / 2));
+    if (owner) {
+      const enemy = owner !== t && !this.allied(owner, t);
+      if (enemy) { owner.roundDamage += real; t.lastAttacker = owner.id; }
+      if (this.settings.scoring !== 'basic') this.award(owner, enemy ? real + absorbed : -Math.ceil((real + absorbed) / 2));
+    }
     this.emit('hit', { tank: t, dmg: real, absorbed });
     if (t.health <= 0 && t.alive) this.kill(t, owner);
   }
@@ -277,9 +363,10 @@ class Game {
   kill(t, owner) {
     t.alive = false;
     t.health = 0;
-    if (owner && owner !== t) { owner.kills++; this.award(owner, 100); }
-    else if (owner === t) this.award(t, -100);
+    if (owner && owner !== t && !this.allied(owner, t)) { owner.kills++; this.award(owner, this.settings.scoring === 'basic' ? 200 : 100); }
+    else if (owner) this.award(owner, -100);
     this.emit('death', { tank: t, by: owner });
+    this.talk(t, true);
     // tanks go out with a bang - chain reactions are part of the fun
     this.pending.push({ x: t.x, y: t.y - 6, delay: 0.35, weapon: 'missile', owner, scale: 0.9 });
   }
@@ -290,14 +377,49 @@ class Game {
     for (const b of this.blasts) b.t += dt;
     this.blasts = this.blasts.filter(b => b.t < b.dur);
 
-    if (this.phase === 'aim') this.updateAim(dt);
-    else if (this.phase === 'flight') this.updateFlight(dt);
-    else if (this.phase === 'settle') this.updateSettle(dt);
+    const active = ['aim', 'flight', 'settle'].includes(this.phase);
+    if (!active) return;
+    if (this.pending.length) this.updatePending(dt);
+    for (const m of this.marks) m.life -= dt;
+    if (this.marks.some(m => m.life <= 0)) { this.marks = this.marks.filter(m => m.life > 0); this.markVersion++; }
+    if (this.environment !== 'clear' && this.environment && (this.hazardClock += dt) >= 8) {
+      this.hazardClock = 0;
+      const x = this.rng.int(0, CFG.W - 1), y = this.terrain.heightAt(x);
+      const meteor = this.environment === 'meteors';
+      this.mark([x + (meteor ? -100 : 12), 0, x - 8, y / 2, x, y], meteor ? '#ff9966' : '#bbddff', 0.6);
+      if (this.settings.hostile === 'on') {
+        this.detonate(x, y, meteor ? 'missile' : 'baby', null);
+        if (this.phase === 'aim' && this.settings.format !== 'simultaneous') {
+          this.resumeAfterSettle = true; this.phase = 'settle'; this.settleTime = 0;
+        }
+      }
+    }
+    if (this.settings.format === 'simultaneous') {
+      for (const tank of this.alive()) {
+        while (tank.health <= 90 && tank.items.battery > 0 && this.useRepair(tank)) { /* automatic battery bank */ }
+      }
+      if (!this.battleDone()) for (const t of this.alive()) if (!this.outstanding(t)) this.updateAim(dt, t);
+      this.updateFlight(dt);
+      this.updateSettle(dt);
+    } else if (this.phase === 'aim') {
+      if (this.battleDone()) { this.phase = 'settle'; this.settleTime = 0; }
+      else this.updateAim(dt, this.current);
+    } else if (this.phase === 'flight') this.updateFlight(dt);
+    else this.updateSettle(dt);
   }
 
-  updateAim(dt) {
-    const t = this.current;
-    if (t.type !== 'ai') return;
+  battleDone() {
+    const alive = this.alive();
+    if (alive.length <= 1 || this.turnCount >= 30 * this.tanks.length) return true;
+    if (this.settings.teams === 'none' || this.betrayal || !alive.every(t => t.team === alive[0].team)) return false;
+    if (this.settings.teams !== 'vicious') return true;
+    this.betrayal = true;
+    for (const t of alive) { t.aiPlan = null; t.ai.target = null; }
+    return false;
+  }
+
+  updateAim(dt, t) {
+    if (!this.eligible(t) || t.type !== 'ai') return;
     if (!t.aiMove) t.aiMove = AI.planMove(this, t);
     if (t.aiMove.steps > 0) {
       t.aiMove.acc = (t.aiMove.acc || 0) + dt * CFG.MOVE_SPEED;
@@ -310,7 +432,11 @@ class Game {
       if (this.phase !== 'aim' || t.aiMove.steps > 0) return;
     }
     if (!t.aiPlan) {
-      if (t.health <= 50) this.useRepair(t);
+      if (t.health <= 90) this.useRepair(t);
+      if (!t.shield) {
+        const shield = Object.keys(ITEMS).reverse().find(id => ITEMS[id].strength && t.items[id] > 0);
+        if (shield) this.equip(t, 'shield', shield);
+      }
       t.aiPlan = AI.plan(this, t); t.aiTimer = 0; t.weapon = t.aiPlan.weapon;
     }
     const plan = t.aiPlan;
@@ -320,28 +446,35 @@ class Game {
     t.angle += Math.sign(da) * Math.min(Math.abs(da), 70 * dt);
     const dp = plan.power - t.power;
     t.power += Math.sign(dp) * Math.min(Math.abs(dp), 500 * dt);
-    if (t.aiTimer >= plan.think && Math.abs(da) < 0.01 && Math.abs(dp) < 0.5) this.fire();
+    if (t.aiTimer >= plan.think && Math.abs(da) < 0.01 && Math.abs(dp) < 0.5) this.fire(t);
   }
 
   updateFlight(dt) {
     this.flightTime += dt;
     this.acc += dt;
-    const env = { terrain: this.terrain, tanks: this.tanks, wind: this.wind, walls: this.settings.walls };
+    const env = { terrain: this.terrain, tanks: this.tanks, wind: this.wind, walls: this.wall };
     let steps = 0;
     while (this.acc >= CFG.DT && steps < 400) {
       this.acc -= CFG.DT; steps++;
+      const impacts = [];
       for (const p of this.projectiles) {
         if (!p.alive) continue;
+        env.walls = p.wall || this.wall;
         const ev = Physics.step(p, env);
+        if (p.weapon === 'smoke' && (p.trailTick || 0) % 5 === 0) {
+          if (!p.smokePath) p.smokePath = [];
+          p.smokePath.push(p.x, p.y);
+        }
         if ((p.trailTick = (p.trailTick || 0) + 1) % 2 === 0) {
           p.trail.push(p.x, p.y);
           if (p.trail.length > 240) p.trail.splice(0, 2);
         }
         if (!ev) { if (p.age > 25) p.alive = false; continue; }
-        this.handleImpact(p, ev);
+        impacts.push([p, ev]);
       }
+      for (const [projectile, impact] of impacts) this.handleImpact(projectile, impact);
       this.projectiles = this.projectiles.filter(p => p.alive);
-      if (!this.projectiles.length) { this.acc = 0; this.phase = 'settle'; this.settleTime = 0; break; }
+      if (!this.projectiles.length && this.settings.format !== 'simultaneous') { this.acc = 0; this.phase = 'settle'; this.settleTime = 0; break; }
     }
   }
 
@@ -352,15 +485,21 @@ class Game {
         p.alive = false;
         for (let k = 0; k < W.split; k++) {
           const off = (k - (W.split - 1) / 2) * 75;
-          this.projectiles.push({ id: this.nextProjId++, x: p.x, y: p.y, vx: p.vx + off, vy: p.vy, weapon: p.weapon, owner: p.owner,
+          this.projectiles.push({ id: this.nextProjId++, x: p.x, y: p.y, vx: p.vx + off, vy: p.vy, contact: p.contact, wall: p.wall, suspended: p.suspended, weapon: p.weapon, owner: p.owner,
             age: 1, bounces: 0, split: true, alive: true, trail: [], child: true });
         }
         this.emit('split', { x: p.x, y: p.y });
       }
       return;
     }
-    if (ev.type === 'lost') { p.alive = false; this.emit('lost', {}); return; }
-    this.detonate(ev.x, ev.y, p.weapon, p.owner);
+    if (ev.type === 'lost') {
+      if (p.burrowing && !p.suspended) this.terrain.collapse();
+      p.alive = false; this.emit('lost', {}); return;
+    }
+    if (p.owner && ev.type !== 'dig') p.owner.impactX = ev.x;
+    if (Arsenal.impact(this, p, ev)) return;
+    if (W.split && !p.child) { p.alive = false; return; }
+    this.detonate(ev.x, ev.y, p.weapon, p.owner, W.bounces ? 1 + p.bounces * 0.25 : 1, p.suspended);
     if (W.bounces && p.bounces < W.bounces && ev.type === 'ground') {
       p.bounces++;
       p.vy = -Math.abs(p.vy) * 0.6 - 120;
@@ -372,14 +511,15 @@ class Game {
     p.alive = false;
   }
 
-  updateSettle(dt) {
-    this.settleTime += dt;
-    // delayed detonations (destroyed tanks)
+  updatePending(dt) {
     for (const d of this.pending) d.delay -= dt;
     const due = this.pending.filter(d => d.delay <= 0);
     this.pending = this.pending.filter(d => d.delay > 0);
-    for (const d of due) this.detonate(d.x, d.y, d.weapon, d.owner, d.scale);
+    for (const d of due) this.detonate(d.x, d.y, d.weapon, d.owner, d.scale, false, d.color);
+  }
 
+  updateSettle(dt) {
+    this.settleTime += dt;
     // tank falling - wrecks fall too, so destroyed tanks settle into their craters
     let moving = false;
     for (const t of this.tanks) {
@@ -387,9 +527,9 @@ class Game {
       if (t.y < rest - 0.5) {
         if (!t.falling) {
           t.falling = true; t.fallStart = t.y; t.vy = 0;
-          if (t.alive && rest - t.y > CFG.FALL_SAFE && (t.items.parachute || 0) > 0) { t.items.parachute--; t.chute = true; }
+          if (t.alive && t.parachuteOn && (rest - t.y - CFG.FALL_SAFE) * CFG.FALL_DMG >= t.threshold && (t.items.parachute || 0) > 0) { t.items.parachute--; t.chute = true; }
         }
-        t.vy = t.chute ? 70 : t.vy + CFG.GRAVITY * dt;
+        t.vy = t.chute ? 70 : t.vy + CFG.GRAVITY * this.settings.gravity / 100 * dt;
         t.y = Math.min(rest, t.y + t.vy * dt);
         moving = true;
       } else if (t.falling) {
@@ -405,11 +545,18 @@ class Game {
     }
 
     const busy = moving || this.pending.length || this.blasts.some(b => b.t < b.dur * 0.7);
+    if (this.settings.format === 'simultaneous') {
+      if (!busy && !this.projectiles.length && this.battleDone()) this.endRound();
+      return;
+    }
     if (!busy && this.settleTime > 0.45) {
-      const alive = this.alive();
-      const cap = 30 * this.tanks.length;
-      if (alive.length <= 1 || this.turnCount >= cap) this.endRound();
-      else if (this.resumeAfterSettle && this.current.alive) {
+      if (this.battleDone()) this.endRound();
+      else if (this.resumeAfterSettle && this.settings.format === 'volley') {
+        this.resumeAfterSettle = false;
+        const waiting = this.alive().filter(t => !t.committed);
+        if (waiting.length) { this.phase = 'aim'; this.turn = waiting[0].id; this.beginTurn(); }
+        else { this.phase = 'flight'; for (const t of this.alive()) this.launch(t); }
+      } else if (this.resumeAfterSettle && this.current.alive) {
         this.resumeAfterSettle = false;
         this.phase = 'aim';
       }

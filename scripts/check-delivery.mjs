@@ -86,12 +86,19 @@ function play(base) {
       const m = JSON.parse(ev.data);
       if (seen[seen.length - 1] !== m.t) seen.push(m.t);
       if (m.t === 'welcome') send({ t: 'createRoom', name: 'delivery-check' });
-      else if (m.t === 'room' && !setup) { setup = true; send({ t: 'settings', settings: { rounds: 1 } }); send({ t: 'addBot', difficulty: 'easy' }); }
+      else if (m.t === 'room' && !setup) { setup = true; send({ t: 'settings', settings: { rounds: 1, startingCash: 2000 } }); send({ t: 'addBot', difficulty: 'easy' }); }
       else if (m.t === 'room' && m.bots.length && !voted) { voted = true; send({ t: 'vote', on: true }); }
       else if (m.t === 'shop') send({ t: 'shopDone' });
       else if (m.t === 'snap' && m.stage === 'play' && m.terrain) {
         assert.equal(m.tanks.length, 2);
-        assert.equal(Buffer.from(m.terrain, 'base64').length, CFG.W * 2, 'terrain payload bytes');
+        assert.ok(seen.includes('shop'), 'funded match visited the shop');
+        let columns = 0;
+        for (const run of m.terrain.runs) {
+          assert.equal(run.start, columns);
+          assert.ok(run.heights.every(Number.isInteger) && Array.isArray(run.holes));
+          columns += run.heights.length;
+        }
+        assert.equal(columns, CFG.W, 'complete starting terrain');
         clearTimeout(fail);
         send({ t: 'leaveRoom' });
         ws.close();

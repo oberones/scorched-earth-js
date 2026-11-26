@@ -28,10 +28,10 @@ with sync_playwright() as p:
     assert mobile.evaluate("document.querySelector('.setup').scrollWidth === document.querySelector('.setup').clientWidth")
     mobile.click("#leaderboard-online")
     mobile.wait_for_selector("#leaderboard-retry")
-    mobile.select_option("#opt-rounds", "1")
+    mobile.fill("#opt-rounds", "1")
     mobile.locator("#player-list input").first.fill("Test Pilot")
     mobile.click("#start")
-    mobile.click("#shop-done")
+    assert mobile.locator("#screen-shop").is_hidden()
     mobile.evaluate("""() => {
         const game = window.__scorched.game;
         for (const tank of game.tanks) {
@@ -43,14 +43,55 @@ with sync_playwright() as p:
     mobile.reload()
     assert mobile.locator("#leaderboard-table tbody tr").count() == 1
     assert mobile.locator("#leaderboard-table tbody tr").inner_text().split() == ["1", "Test", "Pilot", "450", "3", "1"]
+    # All ten seats, two independent keyboards and the shop panel must work at phone width.
+    for _ in range(6):
+        mobile.click("#add-player")
+    for i in range(10):
+        mobile.locator('#player-list select[aria-label="Controller"]').nth(i).select_option("human")
+    mobile.select_option("#opt-format", "simultaneous")
+    mobile.click("#local-rules summary")
+    mobile.fill("#opt-startingCash", "50000")
+    mobile.click("#start")
+    mobile.select_option("#shop-family", "Shields")
+    mobile.locator(".card").filter(has=mobile.get_by_text("Force Shield", exact=True)).locator(".buy").click()
+    mobile.select_option("#shop-family", "Supplies")
+    mobile.locator(".card").filter(has=mobile.get_by_text("Auto Defense", exact=True)).locator(".buy").click()
+    mobile.click("#shop-defenses")
+    mobile.get_by_label("Shield", exact=True).select_option("force")
+    mobile.click("#equipment-close")
+    assert mobile.evaluate("document.querySelector('.shop').scrollWidth <= document.querySelector('.shop').clientWidth")
+    mobile.screenshot(path=f"{SHOTS}/classic_mobile_shop.png")
+    for _ in range(10):
+        mobile.click("#shop-done")
+    mobile.wait_for_timeout(250)
+    assert not errors, errors
+    assert mobile.evaluate("window.__scorched.game.round") == 1, mobile.evaluate("window.__scorched.game.shopper")
+    mobile.wait_for_selector("#scoreboard .r:nth-child(10)")
+    assert mobile.evaluate("window.__scorched.game.tanks[0].shieldType") == "force"
+    bindings = mobile.evaluate("window.__scorched.game.settings.players.map(p => p.keys)")
+    assert len(set(key for group in bindings for key in group)) == 60
+    mobile.keyboard.press(bindings[0][5])
+    mobile.keyboard.press(bindings[1][5])
+    assert mobile.evaluate("window.__scorched.game.tanks.slice(0, 2).every(t => t.lastShot)")
+    assert mobile.locator("#btn-fire").bounding_box()["x"] >= 0
+    mobile.screenshot(path=f"{SHOTS}/classic_mobile_battle.png")
+    mobile.set_viewport_size({"width": 1280, "height": 760})
+    mobile.screenshot(path=f"{SHOTS}/classic_ten_commanders.png")
     mobile.close()
 
+    pg.click("#local-rules summary")
+    pg.fill("#opt-startingCash", "22000")
     pg.click("#start")
     pg.wait_for_timeout(300)
     pg.screenshot(path=f"{SHOTS}/2_shop.png")
     # buy a couple of things then start
     for name in ("Baby Nuke", "Fuel"):
-        pg.locator(".card", has_text=name).first.locator("button.buy").click()
+        pg.locator(".card").filter(has=pg.get_by_text(name if name != "Fuel" else "Fuel Tank", exact=True)).first.locator("button.buy").click()
+    pg.click("#save-campaign")
+    pg.reload()
+    pg.click("#resume-campaign")
+    assert pg.evaluate("window.__scorched.game.tanks[0].items.fuel") == 100
+    assert pg.evaluate("window.__scorched.game.tanks[0].inventory.babynuke") == 3
     pg.click("#shop-done")
     pg.wait_for_timeout(500)
 

@@ -129,6 +129,9 @@ class Renderer {
     c.strokeStyle = th.grass; c.lineWidth = 7; c.stroke(edge);              // topsoil band
     c.restore();
     c.strokeStyle = 'rgba(255,255,255,0.22)'; c.lineWidth = 1; c.stroke(edge); // rim light
+    for (const [x, intervals] of this.game.terrain.holes) {
+      for (const [top, bottom] of intervals) c.clearRect(x, top, 1, bottom - top);
+    }
     this.terrVersion = this.game.terrain.version;
   }
 
@@ -198,7 +201,7 @@ class Renderer {
           break;
         case 'split': S.split(); this.flashes.push({ x: e.x, y: e.y, r: 22, life: 0.2, max: 0.2 }); break;
         case 'bounce': S.bounce(); break;
-        case 'repair': this.text(e.tank.x, e.tank.y - 44, '+50 repaired', '#7dff9a'); S.buy(); break;
+        case 'repair': this.text(e.tank.x, e.tank.y - 44, `+${e.restored} health`, '#7dff9a'); S.buy(); break;
         case 'turn': S.turn(); break;
       }
     }
@@ -229,6 +232,12 @@ class Renderer {
     ctx.drawImage(this.terr, 0, 0, W, H);
     for (const t of g.tanks) if (!buried(t)) this.drawTank(t);
 
+    for (const mark of g.marks || []) {
+      ctx.beginPath(); ctx.strokeStyle = mark.color; ctx.lineWidth = 2;
+      ctx.moveTo(mark.points[0], mark.points[1]);
+      for (let i = 2; i < mark.points.length; i += 2) ctx.lineTo(mark.points[i], mark.points[i + 1]);
+      ctx.stroke();
+    }
     this.drawAimGuide();
     for (const p of g.projectiles) this.drawProjectile(p, dt);
     this.drawBlasts();
@@ -257,11 +266,11 @@ class Renderer {
 
   drawTank(t) {
     const ctx = this.ctx, g = this.game;
-    const roll = t.falling ? 0 : g.terrain.slopeAt(t.x) * 0.8;
+    const roll = t.falling ? 0 : g.terrain.slopeAt(t.x, 12, t.y) * 0.8;
     const a = (t.angle * Math.PI) / 180;
     // contact shadow
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(t.x, g.terrain.heightAt(t.x) + 1, 22, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(t.x, g.terrain.support(t.x, t.y) + 1, 22, 3.5, 0, 0, Math.PI * 2); ctx.fill();
 
     if (t.chute && t.falling) {
       ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
@@ -292,7 +301,7 @@ class Renderer {
     const hp = t.health / CFG.MAX_HEALTH;
     ctx.fillStyle = hp > 0.6 ? '#5ee07a' : hp > 0.3 ? '#f2c94c' : '#ff5e57';
     ctx.fillRect(bx, by, bw * hp, 4);
-    if (t.shield > 0) { ctx.fillStyle = '#7fe7ff'; ctx.fillRect(bx, by - 3, bw * (t.shield / 80), 2); }
+    if (t.shield > 0) { ctx.fillStyle = '#7fe7ff'; ctx.fillRect(bx, by - 3, bw * (t.shield / (ITEMS[t.shieldType]?.strength || 80)), 2); }
     ctx.font = '600 11px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(t.name, t.x + 1, by - 6);
     ctx.fillStyle = '#fff'; ctx.fillText(t.name, t.x, by - 7);

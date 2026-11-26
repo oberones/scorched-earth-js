@@ -13,7 +13,7 @@
 const crypto = require('crypto');
 const E = require('./engine');
 
-const MAX_SEATS = 6;
+const MAX_SEATS = 10;
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;              // snapshots at 30 Hz
 const COUNTDOWN_MS = +process.env.COUNTDOWN_MS || 3000;
@@ -22,18 +22,12 @@ const SHOP_MS = +process.env.SHOP_MS || 45000;
 const EMPTY_ROOM_GRACE_MS = 60000; // keep a battle alive this long with nobody connected
 const CLIENT_GRACE_MS = 120000;    // remember a disconnected client (for reconnect)
 const MAX_ROOMS = +process.env.MAX_ROOMS || 200;
-const DIFFS = ['easy', 'medium', 'hard', 'expert'];
+const DIFFS = Object.keys(E.DIFFICULTY);
 const TURN_TIMES = [0, 20, 30, 45, 60, 90];
 
 const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, max);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, Number.isFinite(+v) ? +v : a));
 const rid = (n) => crypto.randomBytes(n).toString('hex');
-
-function encodeTerrain(ground) {
-  const b = Buffer.alloc(ground.length * 2);
-  for (let i = 0; i < ground.length; i++) b.writeUInt16LE(Math.round(Math.max(0, ground[i]) * 8), i * 2);
-  return b.toString('base64');
-}
 
 // Replace tank references in events with {$t: id}; drop bulky arrays.
 function serEvent(e) {
@@ -91,7 +85,9 @@ class Room {
     this.colors = new Map();      // clientId|botId -> colour index
     this.votes = new Set();
     this.bots = [];
-    this.settings = { rounds: 5, terrain: 'random', walls: 'open', windMode: 'changing', turnTime: 45 };
+    this.settings = { ...E.matchRules(), turnTime: 45 };
+    this.teams = new Map();
+    this.deadlines = new Map();
     this.stage = 'lobby';         // lobby | countdown | shop | play | roundOver
     this.game = null;
     this.tankOf = new Map();      // clientId -> tank id
@@ -119,6 +115,7 @@ class Room {
     this.members.push(c);
     c.room = this;
     this.colors.set(c.id, this.freeColor());
+    this.teams.set(c.id, (this.members.length + this.bots.length - 1) % 2);
     this.system(`${c.name} joined`);
     this.changed();
     if (this.inGame()) this.sendGameState(c);
@@ -132,7 +129,7 @@ class Room {
       this.autopilot(c, true);
     }
     this.members.splice(i, 1);
-    this.colors.delete(c.id);
+    this.colors.delete(c.id); this.teams.delete(c.id);
     this.votes.delete(c.id);
     c.room = null;
     if (this.hostId === c.id) this.hostId = this.members[0] ? this.members[0].id : null;
@@ -187,10 +184,10 @@ class Room {
       countdownEnds: this.stage === 'countdown' ? this.countdownEnds : null,
       settings: this.settings, you: forClient.id, maxSeats: MAX_SEATS,
       members: this.members.map(m => ({
-        id: m.id, name: m.name, color: E.TEAM_COLORS[this.colors.get(m.id)].hex,
+        id: m.id, name: m.name, team: this.teams.get(m.id), color: E.TEAM_COLORS[this.colors.get(m.id)].hex,
         vote: this.votes.has(m.id), spectator: !players.includes(m), conn: m.connected,
       })),
-      bots: this.bots.map(b => ({ id: b.id, name: b.name, difficulty: b.difficulty, color: E.TEAM_COLORS[this.colors.get(b.id)].hex })),
+      bots: this.bots.map(b => ({ id: b.id, name: b.name, team: this.teams.get(b.id), difficulty: b.difficulty, color: E.TEAM_COLORS[this.colors.get(b.id)].hex })),
       chat: this.chatLog.slice(-40),
     };
   }
@@ -214,6 +211,7 @@ class Room {
   // ----------------------------------------------------------------- voting
   canStart() {
     const players = this.players();
+    if (this.settings.teams !== 'none' && new Set([...players, ...this.bots].map(p => this.teams.get(p.id))).size < 2) return false;
     return players.length >= 1 && players.length + this.bots.length >= 2 &&
       players.every(p => this.votes.has(p.id) && p.connected);
   }
@@ -235,8 +233,8 @@ class Room {
   startGame() {
     const players = this.players();
     const list = [
-      ...players.map(c => ({ name: c.name, color: E.TEAM_COLORS[this.colors.get(c.id)].hex, type: 'human', clientId: c.id })),
-      ...this.bots.map(b => ({ name: b.name, color: E.TEAM_COLORS[this.colors.get(b.id)].hex, type: 'ai', difficulty: b.difficulty })),
+      ...players.map(c => ({ name: c.name, team: this.teams.get(c.id), color: E.TEAM_COLORS[this.colors.get(c.id)].hex, type: 'human', clientId: c.id })),
+      ...this.bots.map(b => ({ name: b.name, team: this.teams.get(b.id), color: E.TEAM_COLORS[this.colors.get(b.id)].hex, type: 'ai', difficulty: b.difficulty })),
     ];
     const seed = crypto.randomInt(1, 2 ** 31);
     this.game = new E.Game(Object.assign({}, this.settings, { players: list, seed }));
@@ -244,8 +242,10 @@ class Room {
     list.forEach((p, i) => { if (p.clientId) this.tankOf.set(p.clientId, i); });
     this.votes.clear();
     this.lastTurnKey = null;
+    for (const member of this.members) { member.tv = -1; member.markVersion = -1; }
     this.broadcastGameStart();
-    this.openShop();
+    if (this.settings.startingCash > 0) { this.game.shopBots(); this.openShop(); }
+    else { this.stage = 'shop'; this.startRound(); }
     this.lobby.roomsChanged();
   }
 
@@ -254,14 +254,14 @@ class Room {
     return {
       t: 'gameStart', seed: g.settings.seed, settings: this.settings,
       yourTank: this.tankOf.has(c.id) ? this.tankOf.get(c.id) : null,
-      tanks: g.tanks.map(t => ({ id: t.id, name: t.name, color: t.color, type: t.type, difficulty: t.difficulty })),
+      tanks: g.tanks.map(t => ({ id: t.id, name: t.name, color: t.color, team: t.team, type: t.type, difficulty: t.difficulty })),
     };
   }
   broadcastGameStart() { for (const m of this.members) m.send(this.gameStartMsg(m)); }
 
   sendGameState(c) {
     c.send(this.gameStartMsg(c));
-    c.tv = -1;
+    c.tv = -1; c.markVersion = -1;
     this.sendSnap([c]);
     if (this.stage === 'shop') c.send({ t: 'shop', ends: this.shopEnds, done: [...this.shopDone] });
     if (this.stage === 'roundOver') c.send({ t: 'roundOver', winner: this.game.lastWinner ? this.game.lastWinner.id : null });
@@ -289,6 +289,7 @@ class Room {
     clearTimeout(this.timer);
     this.game.startRound();
     this.stage = 'play';
+    this.deadlines.clear();
     this.turnStart = Date.now();
     this.tick = 0;
     this.last = Date.now();
@@ -303,15 +304,14 @@ class Room {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
 
-    // turn timer for human players
-    const key = `${g.round}:${g.turnCount}:${g.turn}`;
-    if (key !== this.lastTurnKey) { this.lastTurnKey = key; this.turnStart = now; }
-    const limit = this.settings.turnTime * 1000;
-    const cur = g.current;
-    if (g.phase === 'aim' && cur && cur.type === 'human' && limit > 0 && now - this.turnStart > limit) {
-      g.fire(); // time's up: shoot with whatever is dialled in
+    for (const tank of g.tanks) {
+      if (!this.settings.turnTime || !g.canControl(tank) || (g.settings.format === 'simultaneous' && g.outstanding(tank))) {
+        this.deadlines.delete(tank.id);
+        continue;
+      }
+      if (!this.deadlines.has(tank.id)) this.deadlines.set(tank.id, now + this.settings.turnTime * 1000);
+      if (now >= this.deadlines.get(tank.id)) { g.fire(tank); this.deadlines.delete(tank.id); }
     }
-
     try { g.update(dt); } catch (err) { console.error(`[room ${this.code}]`, err); }
     this.tick++;
     if (g.phase === 'roundOver') return this.roundOver();
@@ -343,7 +343,8 @@ class Room {
     this.sendSnap();
     this.broadcast({ t: 'gameOver', standings: g.standings().map(t => t.id) });
     const champ = g.standings()[0];
-    this.system(`${champ.name} wins the war with ${champ.score} points`);
+    this.system(!['corporate', 'standard'].includes(g.settings.teams) ? `${champ.name} wins the war` :
+      `Team ${E.Campaign.teams(g)[0].team + 1} leads the final standings`);
     this.stage = 'lobby';
     this.game = null;
     this.tankOf = new Map();
@@ -358,14 +359,18 @@ class Room {
     return {
       t: 'snap', ts: Date.now(), stage: this.stage, phase: g.phase, round: g.round, rounds: g.settings.rounds,
       theme: g.theme, wind: g.wind, turn: g.turn, turnCount: g.turnCount,
-      turnEnds: (this.stage === 'play' && g.phase === 'aim' && g.current && g.current.type === 'human' && this.settings.turnTime)
-        ? this.turnStart + this.settings.turnTime * 1000 : null,
+      turnEnds: this.deadlines.get(g.turn) || null, deadlines: Object.fromEntries(this.deadlines),
+      teamWinner: g.lastTeam, betrayal: g.betrayal, marketPrices: g.marketPrices,
+      ranking: g.standings().map(t => t.id), environment: g.environment, wall: g.wall,
       winner: g.lastWinner ? g.lastWinner.id : null,
       tanks: g.tanks.map(t => ({
         id: t.id, x: +t.x.toFixed(2), y: +t.y.toFixed(2), a: +t.angle.toFixed(2), p: Math.round(t.power), w: t.weapon,
         h: t.health, sh: t.shield, alive: t.alive, falling: t.falling, chute: t.chute,
         score: t.score, money: t.money, kills: t.kills, wins: t.wins, rp: t.roundPoints, rd: t.roundDamage,
         inv: Object.fromEntries(Object.entries(t.inventory).map(([k, v]) => [k, v === Infinity ? -1 : v])),
+        team: t.team, committed: !!t.committed, busy: g.outstanding(t), serial: t.serial || 0,
+        shieldType: t.shieldType, defense: t.defense, parachuteOn: t.parachuteOn, threshold: t.threshold,
+        targetId: t.targetId, energy: t.energy, guidance: t.guidance, contact: t.contact,
         items: t.items, type: t.type, auto: !!t.autopilot,
       })),
       proj: g.projectiles.map(p => ({ id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), vx: +p.vx.toFixed(1), vy: +p.vy.toFixed(1), w: p.weapon })),
@@ -379,14 +384,20 @@ class Room {
     if (!this.game) return;
     const snap = this.snapshot(!only);
     const tv = this.game.terrain.version;
-    const base = JSON.stringify(snap);
-    let withTerrain = null;
-    for (const m of only || this.members) {
-      if (this.game.round && m.tv !== tv) {
-        if (!withTerrain) withTerrain = JSON.stringify(Object.assign(snap, { terrain: encodeTerrain(this.game.terrain.ground), tv }));
-        m.send(withTerrain);
-        m.tv = tv;
-      } else m.send(base);
+    const cache = new Map();
+    for (const member of only || this.members) {
+      const since = this.game.round ? member.tv : tv;
+      const marksChanged = member.markVersion !== this.game.markVersion;
+      const key = since + '/' + marksChanged;
+      if (!cache.has(key)) {
+        const message = { ...snap };
+        if (since !== tv) message.terrain = this.game.terrain.changes(since);
+        if (marksChanged) message.marks = this.game.marks;
+        cache.set(key, JSON.stringify(message));
+      }
+      member.send(cache.get(key));
+      if (this.game.round) member.tv = tv;
+      member.markVersion = this.game.markVersion;
     }
   }
 
@@ -406,11 +417,18 @@ class Room {
   handleGame(c, m) {
     const g = this.game, t = this.myTank(c);
     if (!g || !t) return;
-    const myTurn = this.stage === 'play' && g.phase === 'aim' && g.current === t && t.type === 'human';
+    const myTurn = this.stage === 'play' && g.canControl(t);
     switch (m.t) {
       case 'aim': if (myTurn) this.applyAim(t, m); break;
       case 'move': if (myTurn && (m.d === -1 || m.d === 1)) g.moveTank(t, m.d); break;
-      case 'fire': if (myTurn) { this.applyAim(t, m); g.fire(); } break;
+      case 'fire':
+        if (myTurn && (m.serial == null || m.serial === (t.serial || 0)) && (m.round == null || m.round === g.round)) {
+          this.applyAim(t, m); g.fire(t);
+        }
+        break;
+      case 'equip':
+        if (myTurn || (this.stage === 'shop' && !this.shopDone.has(c.id))) { g.equip(t, m.id, m.value); this.sendSnap(); }
+        break;
       case 'repair': if (myTurn) g.useRepair(t); break;
       case 'buy': case 'sell':
         if (this.stage === 'shop' && !this.shopDone.has(c.id)) {
@@ -485,6 +503,8 @@ class Lobby {
 
   // Tell everyone before the process exits (deploys / restarts).
   shutdown() {
+    clearTimeout(this.listTimer);
+    for (const client of this.clients.values()) clearTimeout(client.forgetTimer);
     for (const r of this.rooms.values()) {
       r.system('Server is restarting - you will be returned to the lobby');
       clearInterval(r.loop); clearTimeout(r.timer); clearTimeout(r.emptyTimer);
@@ -576,14 +596,15 @@ class Lobby {
       case 'settings': {
         if (!isHost) return err('Only the host can change settings');
         const s = m.settings || {};
-        if (Number.isInteger(+s.rounds) && +s.rounds >= 1 && +s.rounds <= 10) r.settings.rounds = +s.rounds;
-        if (['random', 'hills', 'mountains', 'flat'].includes(s.terrain)) r.settings.terrain = s.terrain;
-        if (['open', 'bounce', 'wrap'].includes(s.walls)) r.settings.walls = s.walls;
-        if (['changing', 'constant', 'none'].includes(s.windMode)) r.settings.windMode = s.windMode;
+        Object.assign(r.settings, E.matchRules(s, r.settings));
         if (TURN_TIMES.includes(+s.turnTime)) r.settings.turnTime = +s.turnTime;
         r.votes.clear();   // settings changed: everyone re-confirms
         r.changed();
         return;
+      }
+      case 'team': {
+        if (!isHost || !r.teams.has(m.id) || !Number.isInteger(m.team) || m.team < 0 || m.team >= MAX_SEATS) return;
+        r.teams.set(m.id, m.team); r.votes.clear(); r.changed(); return;
       }
       case 'addBot': {
         if (!isHost) return err('Only the host can add bots');
@@ -593,6 +614,7 @@ class Lobby {
         const name = E.DEFAULT_NAMES.find(n => !taken.has(n)) || `Bot ${r.bots.length + 1}`;
         const bot = { id: 'bot-' + rid(3), name, difficulty };
         r.bots.push(bot);
+        r.teams.set(bot.id, (r.players().length + r.bots.length - 1) % 2);
         r.colors.set(bot.id, r.freeColor());
         r.changed();
         return;
@@ -600,7 +622,7 @@ class Lobby {
       case 'removeBot': {
         if (!isHost) return err('Only the host can remove bots');
         const i = r.bots.findIndex(b => b.id === m.id);
-        if (i >= 0) { r.colors.delete(r.bots[i].id); r.bots.splice(i, 1); r.changed(); }
+        if (i >= 0) { r.colors.delete(r.bots[i].id); r.teams.delete(r.bots[i].id); r.bots.splice(i, 1); r.changed(); }
         return;
       }
     }

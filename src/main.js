@@ -22,16 +22,22 @@
     UI.refreshLeaderboard();
   }
 
-  function startGame(settings) {
+  function startGame(settings, restored = null) {
+    if (settings.teams && settings.teams !== 'none' && new Set(settings.players.map((p, i) => p.team ?? i % 2)).size < 2) {
+      $('#setup-error').textContent = 'Assign tanks to at least two teams.'; return;
+    }
+    $('#setup-error').textContent = '';
     Sfx.init();
     demo = false; paused = false; UI.setMovementMode(false);
     lastSettings = settings;
     $('#btn-speed').hidden = false; $('#chatfeed').hidden = true;
-    game = new Game(settings);
+    game = restored || new Game(settings);
+    if (!restored && game.settings.startingCash) game.shopBots();
     renderer.setGame(game);
     lastPhase = null;
     UI.hideScreens();
-    UI.runShop(game, () => beginRound());
+    if (!restored && !game.settings.startingCash) beginRound();
+    else UI.runShop(game, () => beginRound());
   }
 
   function beginRound() {
@@ -67,6 +73,20 @@
 
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (!$('#equipment-panel').hidden) {
+      if (e.key === 'Escape') $('#equipment-panel').hidden = true;
+      return;
+    }
+    if (!demo && !paused && !game.isNet && game.phase === 'aim' && game.settings.format === 'simultaneous' && e.key !== 'Escape') {
+      const t = game.tanks.find(tank => tank.type === 'human' && game.settings.players[tank.id].keys?.includes(e.code));
+      if (!t || !game.canControl(t)) return;
+      e.preventDefault(); game.turn = t.id;
+      const action = game.settings.players[t.id].keys.indexOf(e.code);
+      if (action < 4) keys[e.code] = true;
+      if (action === 4 && !e.repeat) game.cycleWeapon(t);
+      if (action === 5 && !e.repeat) game.fire(t);
+      return;
+    }
     keys[e.key] = true;
     if (e.key === 'Escape' && UI.movementMode) { e.preventDefault(); setMovementMode(false); return; }
     if (e.key === 'Escape' && !demo && game && game.round) { togglePause(); return; }
@@ -81,10 +101,20 @@
     else if (e.key === 'r' || e.key === 'R') game.useRepair(t);
     if (e.key.startsWith('Arrow')) e.preventDefault();
   });
-  window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+  window.addEventListener('keyup', (e) => { keys[e.key] = false; keys[e.code] = false; });
   window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; hold.angle = hold.power = hold.move = 0; });
 
   function applyHeldInput(dt) {
+    if (!demo && !paused && !game.isNet && game.settings.format === 'simultaneous') {
+      for (const t of game.tanks) {
+        if (!game.canControl(t)) continue;
+        const binding = game.settings.players[t.id].keys || [];
+        const held = i => keys[binding[i]] ? 1 : 0;
+        t.angle = Math.min(180, Math.max(0, t.angle + (held(0) - held(1)) * 50 * dt));
+        t.power = Math.min(1000, Math.max(0, t.power + (held(2) - held(3)) * 320 * dt));
+      }
+      return;
+    }
     if (!humanTurn()) { if (UI.movementMode) setMovementMode(false); return; }
     const t = game.current, fine = keys.Shift;
     if (UI.movementMode) {
@@ -190,7 +220,18 @@
     UI.setupPlayers.push({ name: DEFAULT_NAMES[UI.setupPlayers.length], color, type: 'medium' });
     UI.renderSetup();
   };
-  $('#start').onclick = () => startGame(UI.readSettings());
+  $('#start').onclick = () => {
+    const invalid = $('#local-rules input:invalid');
+    if (invalid) { const details = invalid.closest('details'); if (details) details.open = true; invalid.reportValidity(); return; }
+    startGame(UI.readSettings());
+  };
+  $('#resume-campaign').onclick = () => {
+    try {
+      const resumed = Campaign.restore(localStorage.getItem('scorched.campaign'));
+      startGame(resumed.settings, resumed);
+    } catch { $('#setup-error').textContent = 'Could not read the saved campaign.'; }
+  };
+  $('#equipment-open').onclick = () => { if (humanTurn()) UI.equipment(game, game.current); };
 
   // -------------------------------------------------------------- main loop
   let last = performance.now(), hudTick = 0;
@@ -205,13 +246,14 @@
       renderer.silent = demo;
       if (!demo) {
         for (const e of evs) {
-          if (e.type === 'turn' && game.round) {
+          if (e.type === 'turn' && game.round && game.settings.format !== 'simultaneous') {
             const t = e.tank;
             if (game.isNet) {
               if (t.id === game.myTankId && t.type === 'human') { UI.toast('Your shot!', t.color, 1100); Sfx.win(); }
               else UI.toast(`${t.name}'s turn`, t.color, 900);
             } else if (t.type === 'human') UI.toast(`${t.name}, your shot`, t.color, 1100);
           }
+          if (e.type === 'talk') UI.toast(e.tank.name + ' · ' + e.text, e.tank.color, 1500);
           if (e.type === 'death') UI.toast(`${e.tank.name} destroyed`, '#ffd34d', 1300);
         }
       }
@@ -242,6 +284,7 @@
     stopGame() { startDemo(); },
     startDemo,
   };
+  UI.initRules();
   UI.initLeaderboard();
   Net.init();
   startDemo();

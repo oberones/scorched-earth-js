@@ -8,7 +8,7 @@ const path = require('path');
 const vm = require('vm');
 
 const SRC = process.env.SCORCHED_SRC || path.join(__dirname, '..', '..', 'src');
-const FILES = ['config.js', 'terrain.js', 'physics.js', 'ai.js', 'game.js'];
+const FILES = ['config.js', 'terrain.js', 'physics.js', 'campaign.js', 'arsenal.js', 'ai.js', 'game.js'];
 
 const ctx = vm.createContext({ console, Math, Date, Float32Array, Infinity });
 for (const f of FILES) {
@@ -16,6 +16,6 @@ for (const f of FILES) {
 }
 // top-level class/const declarations aren't properties of the context; export explicitly
 const engine = vm.runInContext(
-  '({ APP_VERSION, Game, AI, Physics, Terrain, RNG, CFG, WEAPONS, ITEMS, DIFFICULTY, TEAM_COLORS, WEAPON_ORDER, DEFAULT_NAMES })', ctx);
+  '({ APP_VERSION, Game, AI, Physics, Terrain, RNG, CFG, WEAPONS, ITEMS, DIFFICULTY, TEAM_COLORS, WEAPON_ORDER, DEFAULT_NAMES, Campaign, RULES, matchRules })', ctx);
 
 module.exports = engine;

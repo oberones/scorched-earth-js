@@ -22,28 +22,29 @@ class NetGame {
     this.projectiles = []; this.blasts = []; this.events = [];
     this.round = 0; this.phase = 'shop'; this.stage = 'shop'; this.wind = 0; this.turn = 0; this.turnCount = 0; this.theme = 0;
     this.queue = []; this.cur = null; this.offset = null;
-    this.trails = new Map();
+    this.trails = new Map(); this.marks = []; this.marketPrices = {};
     this.lastAim = ''; this.lastAimAt = 0; this.firedKey = null;
   }
 
-  get current() { return this.tanks[this.turn]; }
+  get current() { return this.settings.format && this.settings.format !== 'sequential' && this.me?.alive ? this.me : this.tanks[this.turn]; }
   get me() { return this.myTankId == null ? null : this.tanks[this.myTankId]; }
-  get turnKey() { return `${this.round}:${this.turnCount}`; }
+  get turnKey() { return `${this.round}:${this.me?.serial || 0}`; }
   serverNow() { return Date.now() - (this.offset || 0); }
 
   canControl(t) {
     return !!t && t.id === this.myTankId && t === this.current && this.stage === 'play' &&
-      this.phase === 'aim' && t.type === 'human' && this.firedKey !== this.turnKey;
+      this.phase === 'aim' && t.alive && !t.falling && !t.committed && t.type === 'human';
   }
   maxPower() { return CFG.MAX_POWER; }
-  standings() { return this.tanks.slice().sort((a, b) => b.score - a.score || b.kills - a.kills); }
+  standings() { return this.ranking ? this.ranking.map(id => this.tanks[id]) : Game.prototype.standings.call(this); }
+  equip(t, id, value) { this.net.send({ t: 'equip', id, value }); }
 
   // ---------------------------------------------------------------- inputs
   fire() {
     const t = this.me;
-    if (!this.canControl(t)) return false;
+    if (!this.canControl(t) || this.firedKey === this.turnKey || (this.settings.format === 'simultaneous' && t.busy)) return false;
     this.firedKey = this.turnKey;
-    this.net.send({ t: 'fire', a: t.angle, p: t.power, w: t.weapon });
+    this.net.send({ t: 'fire', serial: t.serial || 0, round: this.round, a: t.angle, p: t.power, w: t.weapon });
     return true;
   }
   moveTank(t, direction) {
@@ -78,11 +79,11 @@ class NetGame {
     this.wind = s.wind; this.turn = s.turn; this.turnCount = s.turnCount; this.turnEnds = s.turnEnds;
     this.settings.rounds = s.rounds;
     this.lastWinner = s.winner == null ? null : this.tanks[s.winner];
-    if (s.terrain) {
-      const bin = atob(s.terrain);
-      for (let i = 0; i < this.terrain.w; i++) this.terrain.ground[i] = (bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8)) / 8;
-      this.terrain.version++;
-    }
+    if (s.terrain) this.terrain.applyChanges(s.terrain);
+    if (s.marks) this.marks = s.marks;
+    this.ranking = s.ranking; this.lastTeam = s.teamWinner; this.betrayal = s.betrayal;
+    this.marketPrices = s.marketPrices || {}; this.wall = s.wall; this.environment = s.environment;
+    this.turnEnds = s.deadlines?.[this.myTankId] ?? s.turnEnds;
     for (const st of s.tanks) {
       const t = this.tanks[st.id];
       // Our own turret is ours: the server only ever echoes what we sent, so keep the local
@@ -94,6 +95,9 @@ class NetGame {
       Object.assign(t, {
         health: st.h, shield: st.sh, alive: st.alive, falling: st.falling, chute: st.chute,
         score: st.score, money: st.money, kills: st.kills, wins: st.wins, roundPoints: st.rp, roundDamage: st.rd,
+        team: st.team, committed: st.committed, busy: st.busy, serial: st.serial,
+        defense: st.defense, shieldType: st.shieldType, parachuteOn: st.parachuteOn, threshold: st.threshold,
+        targetId: st.targetId, energy: st.energy, guidance: st.guidance, contact: st.contact,
         items: st.items, type: st.type, autopilot: st.auto,
         inventory: Object.fromEntries(Object.entries(st.inv).map(([k, v]) => [k, v === -1 ? Infinity : v])),
       });
@@ -274,13 +278,14 @@ const Net = (() => {
         if (pendingJoin) { send({ t: 'joinRoom', code: pendingJoin }); pendingJoin = null; }
         break;
       case 'rooms': // only sent to clients that are not in a room
+        store.sset('scorched.inRoom', '0');
         rooms = m.rooms;
         if (room || game) { room = null; if (game) endGame(); }
         renderRooms();
         UI.show('screen-online');
         break;
       case 'room':
-        room = m;
+        room = m; store.sset('scorched.inRoom', '1');
         renderRoom();
         if (!game) UI.show('screen-room');
         break;
@@ -339,12 +344,22 @@ const Net = (() => {
         </div>`),
     ].join('');
     $('#bot-controls').hidden = !host;
-    for (const k of ['rounds', 'terrain', 'walls', 'windMode', 'turnTime']) {
+    for (const k of [...Object.keys(RULES), 'turnTime']) {
       const sel = $(`#rs-${k}`);
-      sel.value = String(room.settings[k]);
+      if (!host || sel !== document.activeElement || sel.type !== 'number') sel.value = String(room.settings[k]);
       sel.disabled = !host || room.stage !== 'lobby';
     }
     $('#room-settings-note').textContent = host ? 'You are the host: changing a setting resets votes.' : 'Only the host can change settings.';
+    if (room.settings.teams !== 'none') {
+      const rows = $('#room-members').querySelectorAll('.member');
+      [...room.members, ...room.bots].forEach((member, i) => {
+        if (member.spectator) return;
+        const select = UI.teamSelect(member.team);
+        select.disabled = !host || room.stage !== 'lobby';
+        select.onchange = () => send({ t: 'team', id: member.id, team: +select.value });
+        rows[i].append(select);
+      });
+    }
     const need = players.filter(x => !x.vote).length;
     const vb = $('#vote-btn');
     vb.disabled = !!self.spectator;
@@ -461,6 +476,7 @@ const Net = (() => {
 
   function backToRoom() { endGame(); renderRoom(); UI.show('screen-room'); }
   function leaveRoom() {
+    store.sset('scorched.inRoom', '0');
     send({ t: 'leaveRoom' });
     room = null;
     endGame();
@@ -506,8 +522,13 @@ const Net = (() => {
       if (b.dataset.act === 'rmbot') send({ t: 'removeBot', id: b.dataset.id });
     });
     $('#add-bot').onclick = () => send({ t: 'addBot', difficulty: $('#bot-diff').value });
-    for (const k of ['rounds', 'terrain', 'walls', 'windMode', 'turnTime']) {
-      $(`#rs-${k}`).onchange = () => send({ t: 'settings', settings: { [k]: $(`#rs-${k}`).value } });
+    for (const k of [...Object.keys(RULES), 'turnTime']) {
+      const control = $(`#rs-${k}`);
+      const submit = () => {
+        if (control.validity.valid) send({ t: 'settings', settings: { [k]: RULES[k]?.choices ? control.value : +control.value } });
+      };
+      if (control.type === 'number') control.oninput = submit;
+      else control.onchange = submit;
     }
     $('#vote-btn').onclick = () => {
       const self = room && room.members.find(x => x.id === me);
@@ -538,6 +559,7 @@ const Net = (() => {
     // invite links: …/#room-ABCD
     const mm = /^#room-([A-Za-z]{4})$/.exec(location.hash);
     if (mm) { pendingJoin = mm[1].toUpperCase(); history.replaceState(null, '', location.pathname + location.search); setTimeout(open, 50); }
+    else if (store.sget('scorched.inRoom') === '1') setTimeout(open, 50);
   }
 
   return { init, open, send, openChatInput, leaveRoom, fetchLeaderboard, get room() { return room; }, get game() { return game; } };

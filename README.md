@@ -1,26 +1,27 @@
 # Scorched Earth
 
-**A turn-based artillery game about impossible shots, collapsing mountains, and spending your winnings on a bigger explosion.** Play solo, share the keyboard, or take a 2–6 commander battle online—all from the browser.
+**A browser artillery game about impossible shots, collapsing mountains, and spending your winnings on a bigger explosion.** Play solo, share the keyboard, or take a 2–10 commander battle online—all from the browser.
 
 *Destructible worlds · ruthless robots · local and online multiplayer · zero npm dependencies*
 
-![A commander lines up a Baby Nuke across a mountainous night battlefield](docs/screenshots/battlefield.png)
+![Ten commanders share a battlefield as two tanks fire simultaneously](docs/screenshots/battlefield.png)
 
 ## Fire. Survive. Rebuild your arsenal.
 
 Every round drops the combatants onto a new procedural landscape. Read the wind, choose an angle and power, then watch the full ballistic arc play out. A direct hit can tear open the hillside, send a tank sliding into a crater, or trigger a chain reaction that changes the shot you were planning next.
 
-Between rounds, damage and kills become cash. Spend it on smarter weapons, protection, repairs, parachutes, or enough fuel to crawl into a better firing position. The commander with the best total score—not merely the last tank standing—wins the war.
+Between rounds, damage and kills become cash. Spend it on smarter weapons, protection, repairs, parachutes, or enough fuel to crawl into a better firing position. Standard scoring rewards damage, kills, and survival. Greedy games rank commanders by net worth.
 
 ## What is in the game?
 
 - **Three ways to play.** Battle adaptive AI, pass one screen between local players, or host online rooms with friends. You can even fill every seat with bots and watch the chaos unfold.
-- **Fully destructible terrain.** Explosions carve persistent craters, displaced soil collapses, Dirt Balls build new cover, and Diggers tunnel through the landscape.
-- **Ballistics that reward skill.** Gravity, power, gusting wind, terrain, and three wall modes—open sky, rubber walls, and wrap-around—make every shot a puzzle.
-- **A dangerous arsenal.** Fire Missiles, bouncing Leapfrogs, five-warhead MIRVs, Baby Nukes, full-size Nukes, Dirt Balls, and Diggers. The Baby Missile is always available when the expensive ammunition runs out.
-- **Movement and survival gear.** Buy fuel to reposition on terrain-aware slopes, shields to absorb damage, repair kits to get back in the fight, and parachutes to survive sudden drops.
-- **AI that learns your range.** Four difficulty levels use the same physics as the player. Stronger opponents account for wind, bracket their shots, choose safer weapons, and spend their cash more intelligently.
-- **A complete campaign loop.** Configure the battlefield, shop, fight across multiple rounds, earn money from performance, and chase the final standings.
+- **Choose when to fire.** Take turns, lock in a synchronous volley, or aim and fire in real time. Up to ten humans and bots can play campaigns of 1–1,000 rounds.
+- **Fight alone or on a team.** Standard teams compete for victory. Corporate teammates draw from one treasury. In Vicious games, the last surviving team fights among itself.
+- **33 weapons and 15 accessories.** Burrow through hills with Diggers, follow the slope with Rollers, fill hollows with Napalm, or split a Death’s Head above the battlefield. The arms dealer groups gear by family and shows its effect and DOS bundle price.
+- **Terrain and defenses interact.** Soil can collapse or remain suspended over a tunnel. Shells can penetrate a thin ridge. Use contact triggers for surface impacts, guidance for a particular shot, or a magnetic or reflecting shield for defense.
+- **Configurable battlefields.** Change gravity, air resistance, wind, walls, and environmental hazards. Random walls change each round. Erratic walls change with each shot.
+- **Distinct computer opponents.** Choose an existing difficulty or a DOS personality. Poolshark banks shots, Tosser adjusts after misses, and Cyborg remembers attackers. Unknown conceals its chosen personality.
+- **Between-round campaign saves.** Use **Save campaign** at the local arms dealer and **Resume campaign** on the title screen. One slot in this browser profile preserves the current shopper, purchases, market, teams, and next round.
 - **A lively presentation.** Low-poly tanks and projectiles, animated trajectories, crater effects, five sky themes, a reactive HUD, and Web Audio sound effects make each shot land with impact.
 
 ## See the battlefield
@@ -28,7 +29,7 @@ Between rounds, damage and kills become cash. Spend it on smarter weapons, prote
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/arms-dealer.png" alt="The arms dealer showing weapons, defensive items, prices, and ammunition" />
+      <img src="docs/screenshots/arms-dealer.png" alt="The arms dealer shows Digger, Sandhog, and dirt weapon bundles with prices and a Save campaign button" />
       <br /><strong>Build an arsenal between rounds</strong>
     </td>
     <td width="50%">
@@ -38,7 +39,7 @@ Between rounds, damage and kills become cash. Spend it on smarter weapons, prote
   </tr>
   <tr>
     <td colspan="2">
-      <img src="docs/screenshots/online-battle.png" alt="Three commanders fighting online across a red Martian landscape" />
+      <img src="docs/screenshots/online-battle.png" alt="A shell flies across the battlefield in a three-commander online match" />
       <br /><strong>The same battle reaches every commander in real time</strong>
     </td>
   </tr>
@@ -53,7 +54,7 @@ npm run build
 npm start
 ```
 
-Open [http://localhost:8080](http://localhost:8080), choose **Start local battle**, and configure 2–6 human or AI combatants. For an offline game, you can also open the generated `dist/index.html` directly after building.
+Open [http://localhost:8080](http://localhost:8080), choose **Start local battle**, and configure 2–10 human or AI combatants. For an offline game, you can also open the generated `dist/index.html` directly after building.
 
 The main screen shows the ten best human callsigns by final match score, with kills breaking ties. Local records are saved in your browser. The Online tab shows records shared by players on the selected game server.
 
@@ -66,20 +67,25 @@ The main screen shows the ten best human callsigns by final match score, with ki
 | Fine adjustment | Hold `Shift` while aiming or changing power | — |
 | Choose weapon | `Q` / `E` / `Tab` | Weapon arrows in the HUD |
 | Move | `F`, then `←` / `→`; `F` or `Esc` when done | Fuel and movement buttons |
-| Repair | `R` | Repair item in the HUD |
+| Restore 10 health | `R` | Battery in the HUD |
+| Configure defenses and guidance | — | **Equipment** |
 | Fire | `Space` or `Enter` | **FIRE** |
 | Pause / help | `Esc` | Pause button |
 | Chat online | `T` | Chat field |
 
-Wind affects every shell. Tanks can use the full 0–1000 firing power range at any health.
+For local real-time matches, open **Shared keyboard controls** in setup. Each human has six assignable keys for angle, power, weapon selection, and fire. In volley matches, each player locks in one shot before the shells launch together.
+
+Tanks can use the full 0–1000 firing power range at any health.
+
+Equipment prices, bundle sizes, and arms levels follow the DOS 1.5 tables. Blast radii and projectile speeds use this game's 1,536 × 864 world coordinates. [Scorched Earth 1.5 manual](https://www.abandonwaredos.com/docawd.php?idg=1912&sf=scorchedearthmanual.txt&sg=Scorched+Earth&st=manual)
 
 ## Take the battle online
 
 Everyone visits the URL served by the same Scorched Earth server and chooses **Play online**.
 
 1. Pick a callsign and create a room, join one from the lobby, or enter its four-letter code.
-2. Share the generated invite link. The host can add AI commanders and set the rounds, terrain, walls, wind, and turn timer.
-3. Every seated player votes to start, shops in parallel, and enters the same server-authoritative battle.
+2. Share the generated invite link. The host assigns teams, adds AI commanders, and sets the match rules and turn timer.
+3. Every seated player votes to start, shops in parallel when funds are available, and enters the same server-authoritative battle.
 4. Use `T` to talk during the match. After the final standings, the room resets for a rematch vote.
 
 Online play is designed to survive ordinary interruptions:
@@ -99,14 +105,16 @@ For internet hosting, hardened Docker and Compose files, reverse-proxy examples,
 
 ## Scoring and strategy
 
-| Result | Score |
+The default is Standard scoring. Basic scores kills and survival. Greedy uses Standard points for income and ranks the match by cash plus equipment resale value. Each all-time leaderboard combines individual human scores across formats.
+
+| Result | Standard score |
 | --- | ---: |
 | Deal damage | +1 per damage point |
 | Destroy an opponent | +100 |
 | Survive the round | +150 |
 | Damage yourself | Penalty |
 
-Round performance earns money for the next visit to the arms dealer. Ammunition can also be sold back at 80% of its purchase price, which makes changing strategy between rounds a viable move.
+Campaigns start at $0 by default and go directly into the first round. Set starting cash in **Battlefield and economy** to shop before round one. Unspent cash earns 5% interest by default. The optional free market adjusts prices between shops for the rest of that campaign. Round performance earns money for the next visit to the arms dealer. The shop buys back complete bundles at 80% of their current price.
 
 A few field lessons:
 
@@ -123,6 +131,7 @@ The game is deliberately small and portable:
 - A self-contained build bundles the browser game into one `dist/index.html` file.
 - A fixed 120 Hz physics simulation drives projectiles, collisions, terrain damage, tank falls, and AI planning.
 - Online matches use the same game engine on an authoritative Node server. Clients send inputs and render interpolated snapshots.
+- Terrain snapshots include cavities and update changed columns. Reconnecting players and new spectators receive the whole field.
 - The HTTP and WebSocket server uses Node built-ins only and includes origin checks, security headers, rate limits, ping keepalives, and reconnect support.
 - The canvas renderer draws exported low-poly glTF models with flat shading, highlights, depth sorting, and a jointed tank barrel.
 

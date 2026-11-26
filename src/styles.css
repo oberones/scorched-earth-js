@@ -213,5 +213,35 @@ h3 { font-family: var(--display); font-weight: 600; letter-spacing: 1.5px; text-
   .hud-bar { gap: 4px; font-size: 11px; }
   .hud-group { padding: 0 4px; }
   .power { width: 70px; }
-  #scoreboard { display: none; }
+  #scoreboard { max-height: 32%; overflow-y: auto; font-size: 10px; min-width: 125px; }
+}
+
+details { margin: 10px 0; }
+summary { color: var(--fire2); cursor: pointer; padding: 5px 0; }
+.settings input, .equipment-panel select, .equipment-panel input, .prow select, .member select {
+  background: #23232d; color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 4px;
+}
+.settings input { min-width: 0; width: 100%; }
+#equipment-open { width: auto; padding: 0 6px; }
+.equipment-panel {
+  position: fixed; z-index: 60; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(340px, 94vw); max-height: 88vh; overflow: auto; padding: 18px;
+  border: 1px solid #767064; border-radius: 10px; background: #181922; box-shadow: 0 10px 48px #000;
+}
+#equipment-controls label { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; }
+#equipment-controls input { width: 5em; }
+.shop-grid h3 { grid-column: 1 / -1; margin: 5px 0 0; }
+.shop-actions, #binding-list > div { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.shop-actions { margin: 10px 0; }
+#binding-list button { font-size: 11px; padding: 3px 5px; }
+.prow:has(select[aria-label="Team"]) { grid-template-columns: auto minmax(45px,1fr) minmax(58px,1fr) auto minmax(55px,auto); }
+
+.shop-filter { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.shop-filter select { background: #262833; border: 1px solid var(--line); border-radius: 5px; padding: 5px; }
+.shop-actions { position: sticky; bottom: 0; padding: 8px; background: #191a22; border-radius: 8px; }
+.shop-actions .primary { margin: 0 0 0 auto; width: auto; }
+@media (max-width: 620px) and (orientation: portrait) {
+  #hud { top: auto; bottom: 100%; max-height: 32vh; overflow: auto; pointer-events: auto; }
+  #scoreboard { top: 100%; bottom: auto; left: 8px; right: 8px; max-height: 30vh; overflow: auto; }
+  .shop-actions .primary { flex-grow: 1; }
 }

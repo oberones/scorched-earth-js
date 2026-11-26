@@ -140,7 +140,7 @@ class TestClient {
 
   B.send({ t: 'settings', settings: { rounds: 1 } });
   await B.next('error', 3000);
-  A.send({ t: 'settings', settings: { rounds: 2, turnTime: 20 } });
+  A.send({ t: 'settings', settings: { rounds: 2, turnTime: 20, startingCash: 20000 } });
   A.send({ t: 'addBot', difficulty: 'hard' });
   const withBot = await B.next('room', 3000, m => m.bots.length === 1 && m.settings.rounds === 2);
   assert.strictEqual(withBot.settings.turnTime, 20);
@@ -166,12 +166,12 @@ class TestClient {
   A.send({ t: 'buy', id: 'missile' });
   await A.wait(m => m.t === 'snap' && m.tanks[A.tank].inv.missile === 5, 3000, 'missile bought');
   A.send({ t: 'buy', id: 'fuel' }); B.send({ t: 'buy', id: 'fuel' });
-  await A.wait(m => m.t === 'snap' && m.tanks[A.tank].items.fuel === 50, 3000, 'fuel bought');
-  await B.wait(m => m.t === 'snap' && m.tanks[B.tank].items.fuel === 50, 3000, 'fuel bought');
+  await A.wait(m => m.t === 'snap' && m.tanks[A.tank].items.fuel === 100, 3000, 'fuel bought');
+  await B.wait(m => m.t === 'snap' && m.tanks[B.tank].items.fuel === 100, 3000, 'fuel bought');
   A.autoFire = false; B.autoFire = false;
   A.send({ t: 'shopDone' }); B.send({ t: 'shopDone' });
   const opening = await A.wait(m => m.t === 'snap' && m.stage === 'play' && m.phase === 'aim' && m.terrain, 5000, 'round start');
-  assert.strictEqual(Buffer.from(opening.terrain, 'base64').length, CFG.W * 2, 'terrain snapshot should include every world column');
+  assert.strictEqual(opening.terrain.runs.reduce((n, run) => n + run.heights.length, 0), CFG.W, 'terrain snapshot should include every world column');
   pass('vote starts the game, shop works, round begins with terrain');
 
   const idle = opening.turn === A.tank ? B : A;

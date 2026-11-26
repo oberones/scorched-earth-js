@@ -10,7 +10,7 @@ const Leaderboard = (() => {
       const name = entry.name.trim();
       if (!name || name.length > 16 || !Number.isSafeInteger(score) ||
           !Number.isSafeInteger(kills) || kills < 0 ||
-          !Number.isInteger(rounds) || rounds < 1 || rounds > 10) continue;
+          !Number.isInteger(rounds) || rounds < 1 || rounds > 1000) continue;
       const key = name.toLowerCase();
       const current = best.get(key);
       if (!current || comparePerformance(entry, current) < 0) {
@@ -24,7 +24,7 @@ const Leaderboard = (() => {
   }
 
   function fromMatch(game) {
-    return game.tanks.filter(tank => tank.type === 'human').map(({ name, score, kills }) =>
+    return game.tanks.filter((tank, index) => (game.settings?.players?.[index]?.type ?? tank.type) === 'human').map(({ name, score, kills }) =>
       ({ name, score, kills, rounds: game.round })
     );
   }
